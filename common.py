@@ -36,6 +36,7 @@ class HistoryContext:
         self._current_idx = idx
 
     def get_returns(self, lookback: int) -> pd.DataFrame:
+        """Last `lookback` rows up to today. NaN where a symbol had no bar."""
         if lookback <= 0:
             raise ValueError(f"lookback {lookback} is not a positive integer")
 

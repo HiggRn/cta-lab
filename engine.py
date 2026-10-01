@@ -39,8 +39,9 @@ def run_backtest(
     n_days, n_assets = returns.shape
     col = {s: j for j, s in enumerate(panel.symbols)}
 
+    observed = panel.observed_returns.reindex(columns=panel.symbols).to_numpy()
     context = HistoryContext(
-        returns_arr=returns,
+        returns_arr=observed,
         dates=panel.all_dates,
         symbols=panel.symbols,
     )

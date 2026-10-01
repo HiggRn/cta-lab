@@ -51,11 +51,13 @@ class ModularStrategy(Strategy):
 
 
 class SampleCovarianceRiskModel(RiskModel):
-    def __init__(self, periods_per_year: int = 252):
+    def __init__(self, periods_per_year: int = 252, min_periods: int = 20):
         self.periods_per_year = periods_per_year
+        self.min_periods = min_periods
 
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
-        return returns.cov() * self.periods_per_year
+        # pairwise-complete: NaN days are skipped, thin history gives NaN
+        return returns.cov(min_periods=self.min_periods) * self.periods_per_year
 
 
 class InverseVolPCM(PortfolioConstructionModel):
