@@ -4,7 +4,8 @@ Multi-asset CTA trend-following backtest system.
 
 ## Layout
 
-- `common.py`: core interfaces: `Bar`, `HistoryContext`, `AlphaModel`, `RiskModel`, `PortfolioConstructionModel` (PCM), `Strategy`
+- `common.py`: core interfaces: `Bar`, `Indicator`, `HistoryContext`, `AlphaModel`, `RiskModel`, `PortfolioConstructionModel` (PCM), `Strategy`
+- `indicators/`: reusable indicators
 - `panel.py`: `Panel`, loads raw data + asset map into the daily timeline
 - `engine.py`: `run_backtest()`, runs a `Strategy` over a `Panel`
 - `strategy.py`: `ModularStrategy` and the concrete models
@@ -29,6 +30,7 @@ Strategy development should only ever touch:
 
 - `strategy.py`: new models
 - `main.py`: which models/data/params to run
+- `indicators/`: any new indicator a model needs
 
 `common.py` / `panel.py` / `engine.py` are shared core. If a strategy seems to need a change there, that's worth a separate pull request, not a quiet edit.
 
@@ -47,9 +49,10 @@ Current models: `TsmomAlpha`, `SampleCovarianceRiskModel`, `InverseVolPCM` (weig
 ## Writing an alpha
 
 - `bars` only contains the symbols that traded today.
-- `update()` is called on every bar, so stateful alphas stay current.
+- `update()` is called on every bar. Keep one indicator per symbol and feed it every bar you receive.
+- An `Indicator` is updated only on days its symbol traded, so "last N bars" means that symbol's own N trading days. Read `.value` only when `.is_ready`.
 - Return only the symbols with a new signal. Symbols you leave out keep their last signal. Return `0.0` to go flat.
-- `context.get_returns(n)` gives the last `n` daily returns up to today. NaN means the symbol had no bar that day, and the return over a gap lands on the first day back. pandas reductions (`sum`, `prod`, `std`) skip NaN; plain numpy does not.
+- `context.get_returns(n)` gives the last `n` daily returns up to today across all symbols. NaN means the symbol had no bar that day, and the return over a gap lands on the first day back. pandas reductions (`sum`, `prod`, `std`) skip NaN; plain numpy does not.
 - Don't shift anything for execution lag.
 
 ## Monthly strategy
@@ -72,7 +75,7 @@ Use `rebalance="daily"`. Same alpha rules. Symbols with no bar today keep their 
 
 ## Other notes
 
-- `ModularStrategy` keeps state (last signals). Create a new instance for every backtest.
+- `ModularStrategy` and any alpha holding indicators keep state. Create new instances for every backtest.
 - Symbols with too little history (NaN vol) get no weight.
 - No margin modeling: positions sized like equities, shorting allowed
 - No rollover modeling: assume data has been rolled over already

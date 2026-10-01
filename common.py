@@ -18,6 +18,21 @@ class Bar:
     is_calendar_month_end: bool = False
 
 
+class Indicator(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def is_ready(self) -> bool: ...
+
+    @property
+    @abc.abstractmethod
+    def value(self) -> float:
+        """Only meaningful once is_ready is True."""
+
+    @abc.abstractmethod
+    def update(self, bar: Bar) -> None:
+        """Feed one bar. Called only on days the symbol traded."""
+
+
 class HistoryContext:
     __slots__ = ("_returns_arr", "_dates", "_symbols", "_current_idx")
 

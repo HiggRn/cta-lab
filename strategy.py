@@ -9,6 +9,7 @@ from common import (
     RiskModel,
     Strategy,
 )
+from indicators.momentum import Momentum
 
 
 class ModularStrategy(Strategy):
@@ -51,15 +52,20 @@ class ModularStrategy(Strategy):
 
 
 class TsmomAlpha(AlphaModel):
-    def __init__(self, lookback: int = 252, min_obs: int = 200):
+    def __init__(self, lookback: int = 252):
         self.lookback = lookback
-        self.min_obs = min_obs
+        self._momentum: dict[str, Momentum] = {}
 
     def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
-        window = context.get_returns(self.lookback)
-        # prod skips NaN; too few observations gives NaN and no signal
-        cum = (1.0 + window[list(bars)]).prod(min_count=self.min_obs) - 1.0
-        return {s: float(np.sign(r)) for s, r in cum.dropna().items()}
+        signals = {}
+        for symbol, bar in bars.items():
+            if symbol not in self._momentum:
+                self._momentum[symbol] = Momentum(self.lookback)
+            ind = self._momentum[symbol]
+            ind.update(bar)
+            if ind.is_ready:
+                signals[symbol] = float(np.sign(ind.value))
+        return signals
 
 
 class SampleCovarianceRiskModel(RiskModel):
