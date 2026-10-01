@@ -50,6 +50,18 @@ class ModularStrategy(Strategy):
         return any(b.is_calendar_month_end for b in bars.values())
 
 
+class TsmomAlpha(AlphaModel):
+    def __init__(self, lookback: int = 252, min_obs: int = 200):
+        self.lookback = lookback
+        self.min_obs = min_obs
+
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        window = context.get_returns(self.lookback)
+        # prod skips NaN; too few observations gives NaN and no signal
+        cum = (1.0 + window[list(bars)]).prod(min_count=self.min_obs) - 1.0
+        return {s: float(np.sign(r)) for s, r in cum.dropna().items()}
+
+
 class SampleCovarianceRiskModel(RiskModel):
     def __init__(self, periods_per_year: int = 252, min_periods: int = 20):
         self.periods_per_year = periods_per_year
