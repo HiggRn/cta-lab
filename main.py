@@ -107,7 +107,7 @@ def main():
     panel = Panel(
         raw_dirs=raw_dir,
         asset_map_path=asset_map_path,
-        dropped_symbols={"EN", "ES", "ER", "SC", "BC", "BG", "ZH", "FF", "RL"},
+        dropped_symbols={"EN", "ES", "ER", "SC", "BC", "BG", "ZH", "FF", "RL", "YM"},
     )
 
     gt_df = pd.read_csv(monthly_csv_path, index_col=0, parse_dates=True)
