@@ -49,9 +49,8 @@ class HistoryContext:
 
 class AlphaModel(abc.ABC):
     @abc.abstractmethod
-    def update(
-        self, bars: dict[str, Bar], context: HistoryContext
-    ) -> dict[str, float]: ...
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        """New signals only. Absent symbols keep their last signal; 0.0 means flat."""
 
 
 class RiskModel(abc.ABC):

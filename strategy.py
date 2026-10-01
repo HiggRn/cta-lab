@@ -27,6 +27,7 @@ class ModularStrategy(Strategy):
         self.pcm = pcm
         self.risk_lookback = risk_lookback
         self.rebalance = rebalance
+        self._signals: dict[str, float] = {}
 
     def on_bar(
         self, bars: dict[str, Bar], context: HistoryContext
@@ -34,14 +35,14 @@ class ModularStrategy(Strategy):
         if not bars:
             return None
 
-        # alpha runs on every bar so it can keep its own state
-        signals = self.alpha_model.update(bars, context)
+        # alpha runs on every bar; symbols it does not return keep their last signal
+        self._signals.update(self.alpha_model.update(bars, context))
 
         if not self._is_rebalance_bar(bars):
             return None
 
         cov = self.risk_model.covariance(context.get_returns(self.risk_lookback))
-        return self.pcm.create_targets(signals, cov)
+        return self.pcm.create_targets(self._signals, cov)
 
     def _is_rebalance_bar(self, bars: dict[str, Bar]) -> bool:
         if self.rebalance == "daily":
