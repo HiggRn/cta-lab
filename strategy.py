@@ -1,29 +1,102 @@
-from collections import defaultdict
-
+import numpy as np
 import pandas as pd
 
-from common import Bar, Strategy
-from indicators import MonthlyReturn
+from common import (
+    AlphaModel,
+    Bar,
+    HistoryContext,
+    PortfolioConstructionModel,
+    RiskModel,
+    Strategy,
+)
+from indicators.momentum import Momentum
 
 
-class MonthlyReturnValidationStrategy(Strategy):
-    def __init__(self):
-        self.indicators: dict[str, MonthlyReturn] = defaultdict(MonthlyReturn)
-        self.recorded_monthly_returns: dict[pd.Timestamp, dict[str, float]] = {}
+class ModularStrategy(Strategy):
+    def __init__(
+        self,
+        alpha_model: AlphaModel,
+        risk_model: RiskModel,
+        pcm: PortfolioConstructionModel,
+        risk_lookback: int = 60,
+        rebalance: str = "monthly",
+    ):
+        if rebalance not in ("daily", "monthly"):
+            raise ValueError(f"Unsupported rebalance: {rebalance}")
+        self.alpha_model = alpha_model
+        self.risk_model = risk_model
+        self.pcm = pcm
+        self.risk_lookback = risk_lookback
+        self.rebalance = rebalance
+        self._signals: dict[str, float] = {}
 
-    def on_bar(self, bars: dict[str, Bar]) -> dict[str, float] | None:
+    def on_bar(
+        self, bars: dict[str, Bar], context: HistoryContext
+    ) -> dict[str, float] | None:
         if not bars:
             return None
 
-        today_rets = {}
-        current_date = None
-        for symbol, bar in bars.items():
-            self.indicators[symbol].on_bar(bar)
-            current_date = current_date or bar.date
-            ret = self.indicators[symbol].value
-            if ret is not None:
-                today_rets[symbol] = ret
+        # alpha runs on every bar; symbols it does not return keep their last signal
+        self._signals.update(self.alpha_model.update(bars, context))
 
-        if today_rets:
-            self.recorded_monthly_returns[current_date] = today_rets
-        return None
+        if not self._is_rebalance_bar(bars):
+            return None
+
+        cov = self.risk_model.covariance(context.get_returns(self.risk_lookback))
+        return self.pcm.create_targets(self._signals, cov)
+
+    def _is_rebalance_bar(self, bars: dict[str, Bar]) -> bool:
+        if self.rebalance == "daily":
+            return True
+        return any(b.is_calendar_month_end for b in bars.values())
+
+
+class TsmomAlpha(AlphaModel):
+    def __init__(self, lookback: int = 252):
+        self.lookback = lookback
+        self._momentum: dict[str, Momentum] = {}
+
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        signals = {}
+        for symbol, bar in bars.items():
+            if symbol not in self._momentum:
+                self._momentum[symbol] = Momentum(self.lookback)
+            ind = self._momentum[symbol]
+            ind.update(bar)
+            if ind.is_ready:
+                signals[symbol] = float(np.sign(ind.value))
+        return signals
+
+
+class SampleCovarianceRiskModel(RiskModel):
+    def __init__(self, periods_per_year: int = 252, min_periods: int = 20):
+        self.periods_per_year = periods_per_year
+        self.min_periods = min_periods
+
+    def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        # pairwise-complete: NaN days are skipped, thin history gives NaN
+        return returns.cov(min_periods=self.min_periods) * self.periods_per_year
+
+
+class InverseVolPCM(PortfolioConstructionModel):
+    def __init__(self, target_gross_leverage: float = 1.0):
+        self.target_gross_leverage = target_gross_leverage
+
+    def create_targets(
+        self, signals: dict[str, float], cov: pd.DataFrame
+    ) -> dict[str, float]:
+        vol = pd.Series(np.sqrt(np.diag(cov)), index=cov.index)
+
+        raw = {}
+        for symbol, signal in signals.items():
+            if signal == 0.0 or symbol not in vol.index:
+                continue
+            if pd.notna(vol[symbol]) and vol[symbol] > 1e-4:
+                raw[symbol] = signal / vol[symbol]
+
+        gross = sum(abs(w) for w in raw.values())
+        if gross == 0.0:
+            return {}
+
+        scale = self.target_gross_leverage / gross
+        return {s: w * scale for s, w in raw.items()}

@@ -3,9 +3,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from engine import run_backtest
+from engine import BacktestResult, run_backtest
 from panel import Panel
-from strategy import MonthlyReturnValidationStrategy
+from strategy import (
+    InverseVolPCM,
+    ModularStrategy,
+    SampleCovarianceRiskModel,
+    TsmomAlpha,
+)
 
 
 def compare_monthly_returns(
@@ -71,6 +76,29 @@ def compare_monthly_returns(
         )
 
 
+def monthly_returns_from_bars(panel: Panel) -> pd.DataFrame:
+    # uses each symbol's own month-end flag, so this checks Panel's calendar logic
+    closes: dict[str, dict[pd.Period, float]] = {}
+    for t, bars in panel.timeline:
+        for s, bar in bars.items():
+            if bar.is_month_end:
+                closes.setdefault(s, {})[t.to_period("M")] = bar.close
+
+    prices = pd.DataFrame(closes).sort_index()
+    returns = prices / prices.shift(1) - 1.0
+    returns.index = returns.index.to_timestamp()
+    return returns
+
+
+def print_summary(result: BacktestResult) -> None:
+    pnl = result.net_pnl
+    ann_ret = pnl.mean() * 252
+    ann_vol = pnl.std() * 252**0.5
+    print(f"ann return: {ann_ret:.2%}  ann vol: {ann_vol:.2%}")
+    print(f"sharpe: {ann_ret / ann_vol:.2f}  final nav: {result.nav.iloc[-1]:.3f}")
+    print(f"total cost: {result.costs.sum():.4f}")
+
+
 def main():
     raw_dir = Path("./data/raw")
     asset_map_path = Path("./data/processed/AssetMapCsv.csv")
@@ -79,18 +107,21 @@ def main():
     panel = Panel(
         raw_dirs=raw_dir,
         asset_map_path=asset_map_path,
-        dropped_symbols={"EN", "ES", "ER", "SC", "BC", "BG", "ZH", "FF"},
+        dropped_symbols={"EN", "ES", "ER", "SC", "BC", "BG", "ZH", "FF", "RL", "YM"},
     )
 
-    strategy = MonthlyReturnValidationStrategy()
-    run_backtest(panel=panel, strategy=strategy, cost_bps=0.0, exec_lag=1)
-
-    calculated_df = pd.DataFrame.from_dict(
-        strategy.recorded_monthly_returns, orient="index"
-    ).sort_index()
-
     gt_df = pd.read_csv(monthly_csv_path, index_col=0, parse_dates=True)
-    compare_monthly_returns(calculated_df, gt_df)
+    compare_monthly_returns(monthly_returns_from_bars(panel), gt_df)
+
+    strategy = ModularStrategy(
+        alpha_model=TsmomAlpha(lookback=252),
+        risk_model=SampleCovarianceRiskModel(),
+        pcm=InverseVolPCM(target_gross_leverage=1.0),
+        risk_lookback=60,
+        rebalance="monthly",
+    )
+    result = run_backtest(panel=panel, strategy=strategy, cost_bps=0.0, exec_lag=1)
+    print_summary(result)
 
 
 if __name__ == "__main__":

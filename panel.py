@@ -55,7 +55,12 @@ class Panel:
             if "close" in frames[s].columns:
                 close_dict[s] = frames[s]["close"]
         self.close_df = pd.DataFrame(close_dict, index=self.all_dates)
-        self.returns = self.close_df.pct_change()
+
+        # P&L returns: a gap day earns 0, the first day back earns the whole gap
+        px = self.close_df.ffill()
+        self.returns = px / px.shift(1) - 1.0
+        # estimation returns: NaN on days a symbol has no bar
+        self.observed_returns = self.returns.where(self.close_df.notna())
 
         # pre-materialization
         self.timeline: list[tuple[pd.Timestamp, dict[str, Bar]]] = []
