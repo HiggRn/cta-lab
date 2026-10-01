@@ -1,6 +1,5 @@
 import abc
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -57,21 +56,21 @@ class AlphaModel(abc.ABC):
 
 class RiskModel(abc.ABC):
     @abc.abstractmethod
-    def calculate_risk(self, returns_history: pd.DataFrame) -> Any: ...
+    def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        """Annualized covariance, indexed and columned by symbol."""
 
 
 class PortfolioConstructionModel(abc.ABC):
     @abc.abstractmethod
     def create_targets(
-        self,
-        bars: dict[str, Bar],
-        signals: dict[str, float],
-        risk_output: Any,
-    ) -> dict[str, float] | None: ...
+        self, signals: dict[str, float], cov: pd.DataFrame
+    ) -> dict[str, float]:
+        """Target weights. Symbols that are absent are treated as flat."""
 
 
 class Strategy(abc.ABC):
     @abc.abstractmethod
     def on_bar(
         self, bars: dict[str, Bar], context: HistoryContext
-    ) -> dict[str, float] | None: ...
+    ) -> dict[str, float] | None:
+        """Return new target weights, or None to keep the previous ones."""
