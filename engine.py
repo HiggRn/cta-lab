@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from common import Strategy
+from common import HistoryContext, Strategy
 from panel import Panel
 
 
@@ -27,17 +27,6 @@ class BacktestResult:
         self.net_pnl = net_pnl
         self.nav = (1.0 + net_pnl.fillna(0.0)).cumprod()
 
-    def sliced(
-        self, start: str | None = None, end: str | None = None
-    ) -> BacktestResult:
-        return BacktestResult(
-            self.weights.loc[start:end],
-            self.positions.loc[start:end],
-            self.gross_pnl.loc[start:end],
-            self.costs.loc[start:end],
-            self.net_pnl.loc[start:end],
-        )
-
 
 def run_backtest(
     panel: Panel,
@@ -45,11 +34,26 @@ def run_backtest(
     cost_bps: float = 0.0,
     exec_lag: int = 1,
 ) -> BacktestResult:
+    if exec_lag < 1:
+        raise ValueError("exec_lag must be >= 1")
+
+    aligned_returns = (
+        panel.returns.reindex(columns=panel.symbols).fillna(0.0).to_numpy()
+    )
+
+    context = HistoryContext(
+        returns_arr=aligned_returns,
+        dates=panel.all_dates,
+        symbols=panel.symbols,
+    )
+
     weights_history = {}
     last_w = None
 
-    for t, bars in panel.timeline:
-        w = strategy.on_bar(bars)
+    for idx, (t, bars) in enumerate(panel.timeline):
+        context.update_idx(idx)
+
+        w = strategy.on_bar(bars, context)
         last_w = w if w is not None else last_w
         weights_history[t] = last_w if last_w is not None else {}
 
@@ -59,7 +63,7 @@ def run_backtest(
         .fillna(0.0)
     )
     positions = weights_df.shift(exec_lag).fillna(0.0)
-    gross_pnl = (positions * panel.returns.reindex(columns=panel.symbols)).sum(axis=1)
+    gross_pnl = (positions * aligned_returns).sum(axis=1)
     costs = turnover_cost(positions, cost_bps)
 
     return BacktestResult(weights_df, positions, gross_pnl, costs, gross_pnl - costs)
