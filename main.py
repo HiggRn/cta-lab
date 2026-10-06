@@ -3,7 +3,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from engine import BacktestResult, run_backtest
+from analysis import analyze_backtest
+from engine import run_backtest
 from panel import Panel
 from strategy import (
     InverseVolPCM,
@@ -89,16 +90,6 @@ def monthly_returns_from_bars(panel: Panel) -> pd.DataFrame:
     returns.index = returns.index.to_timestamp()
     return returns
 
-
-def print_summary(result: BacktestResult) -> None:
-    pnl = result.net_pnl
-    ann_ret = pnl.mean() * 252
-    ann_vol = pnl.std() * 252**0.5
-    print(f"ann return: {ann_ret:.2%}  ann vol: {ann_vol:.2%}")
-    print(f"sharpe: {ann_ret / ann_vol:.2f}  final nav: {result.nav.iloc[-1]:.3f}")
-    print(f"total cost: {result.costs.sum():.4f}")
-
-
 def main():
     raw_dir = Path("./data/raw")
     asset_map_path = Path("./data/processed/AssetMapCsv.csv")
@@ -120,8 +111,14 @@ def main():
         risk_lookback=60,
         rebalance="monthly",
     )
-    result = run_backtest(panel=panel, strategy=strategy, cost_bps=0.0, exec_lag=1)
-    print_summary(result)
+    result = run_backtest(
+        panel=panel,
+        strategy=strategy,
+        cost_bps=0.0,
+        exec_lag=1,
+    )
+    
+    analyze_backtest(result)
 
 
 if __name__ == "__main__":
