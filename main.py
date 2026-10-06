@@ -3,8 +3,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from analysis import analyze_backtest
 from engine import BacktestResult, run_backtest
 from panel import Panel
+
 from strategy import (
     InverseVolPCM,
     ModularStrategy,
