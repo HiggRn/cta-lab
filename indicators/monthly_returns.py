@@ -1,33 +1,30 @@
 from collections import deque
 
-import pandas as pd
-
 from common import Bar, Indicator
 
 
 class MonthlyReturn(Indicator):
-    def __init__(self, lookback: int = 1):
-        self.lookback = lookback
-        self._last_month_end_close: float | None = None
-        self.history: deque[float] = deque(maxlen=lookback)
-        self.latest_return: float | None = None
+    """The last `lookback` month-end to month-end returns of one symbol.
 
-    def on_bar(self, bar: Bar) -> None:
-        if not bar.is_month_end:
-            return None
+    Months are closed on the symbol's own last bar of the month (`Bar.is_month_end`).
+    """
 
-        price = bar.close
-        if pd.isna(price) or price <= 0:
-            return None
-
-        self.latest_return = None
-        if self._last_month_end_close is not None and self._last_month_end_close > 0:
-            ret = (price / self._last_month_end_close) - 1.0
-            self.history.append(ret)
-            self.latest_return = ret
-
-        self._last_month_end_close = price
+    def __init__(self, lookback: int = 12):
+        self.returns: deque[float] = deque(maxlen=lookback)
+        self._last_close: float | None = None
 
     @property
-    def value(self) -> float | None:
-        return self.latest_return
+    def is_ready(self) -> bool:
+        return len(self.returns) == self.returns.maxlen
+
+    @property
+    def value(self) -> float:
+        """Sum of the stored monthly returns."""
+        return sum(self.returns)
+
+    def update(self, bar: Bar) -> None:
+        if not bar.is_month_end:
+            return
+        if self._last_close is not None and self._last_close > 0:
+            self.returns.append(bar.close / self._last_close - 1.0)
+        self._last_close = bar.close

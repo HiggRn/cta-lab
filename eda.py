@@ -3,6 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 
 ### Load monthly returns data ###
 def load_monthly_returns(path: Path):
@@ -131,17 +132,61 @@ def rank_acf(x: pd.Series, lag: int):
     return pair.rank().corr().iloc[0, 1]
 
 
-def acf_by_asset_class(returns: pd.DataFrame, asset_map: pd.DataFrame, max_lag: int = 12):
-    # per-symbol rank autocorrelation at each lag, then equal-weight average within class
+def rank_acf_by_symbol(returns: pd.DataFrame, max_lag: int = 12) -> pd.DataFrame:
+    # rows = symbols, columns = lags
     lags = range(1, max_lag + 1)
-    per_symbol = pd.DataFrame(
+    return pd.DataFrame(
         {lag: {s: rank_acf(returns[s], lag) for s in returns.columns} for lag in lags}
     )
+
+
+def acf_by_asset_class(returns: pd.DataFrame, asset_map: pd.DataFrame, max_lag: int = 12):
+    # per-symbol rank autocorrelation at each lag, then equal-weight average within class
+    per_symbol = rank_acf_by_symbol(returns, max_lag)
     classes = asset_map["AssetClass"].reindex(per_symbol.index)
     by_class = per_symbol.groupby(classes).mean().T
     by_class.insert(0, "ALL", per_symbol.mean())
     by_class.index.name = "lag"
     return by_class
+
+
+def acf_tstats(returns: pd.DataFrame, asset_map: pd.DataFrame, max_lag: int = 12):
+    # t-stat of the class average across symbols: mean / (std / sqrt(n))
+    per_symbol = rank_acf_by_symbol(returns, max_lag)
+    classes = asset_map["AssetClass"].reindex(per_symbol.index)
+    groups = per_symbol.groupby(classes)
+    tstats = (groups.mean() / (groups.std() / np.sqrt(groups.count()))).T
+    tstats.insert(0, "ALL", per_symbol.mean() / (per_symbol.std() / np.sqrt(len(per_symbol))))
+    tstats.index.name = "lag"
+    return tstats
+
+
+def pooled_predictability(returns: pd.DataFrame, max_lag: int = 36) -> pd.Series:
+    # Moskowitz, Ooi and Pedersen (2012), Figure 1: regress r(t)/vol on r(t-h)/vol over all
+    # symbols at once; vol is the expanding std up to t-1, t-stats are clustered by month
+    vol = returns.expanding(min_periods=36).std().shift(1)
+    scaled = returns / vol
+    y = scaled.stack()
+    tstats = {}
+    for h in range(1, max_lag + 1):
+        df = pd.concat([y.rename("y"), scaled.shift(h).stack().rename("x")], axis=1).dropna()
+        month = pd.factorize(df.index.get_level_values(0))[0]
+        fit = sm.OLS(df["y"], sm.add_constant(df["x"])).fit(cov_type="cluster", cov_kwds={"groups": month})
+        tstats[h] = fit.tvalues["x"]
+    return pd.Series(tstats, name="t-stat")
+
+
+def asset_class_stats(returns: pd.DataFrame, asset_map: pd.DataFrame) -> pd.DataFrame:
+    # two readings of "equally weighted average across instruments":
+    # A = average of each symbol's statistics, B = statistics of the equal-weighted class portfolio
+    classes = asset_map["AssetClass"].reindex(returns.columns)
+    per_symbol = pd.DataFrame({"Avg": returns.mean() * 12, "Std": returns.std() * np.sqrt(12)})
+    per_symbol["SR"] = per_symbol["Avg"] / per_symbol["Std"]
+    a = per_symbol.groupby(classes).mean().add_prefix("A: ")
+    class_returns = returns.T.groupby(classes).mean().T
+    b = pd.DataFrame({"B: Avg": class_returns.mean() * 12, "B: Std": class_returns.std() * np.sqrt(12)})
+    b["B: SR"] = b["B: Avg"] / b["B: Std"]
+    return a.join(b)
 
 
 def plot_acf(acf: pd.DataFrame, out_path: Path):
@@ -211,9 +256,17 @@ def main():
     plot_cumulative_returns(cumulative, plot_path)
     print(f"\nsaved cumulative return plot to {plot_path}")
 
+    print("\nasset class statistics, two definitions (A = avg of symbols, B = EW portfolio):")
+    print(asset_class_stats(returns, asset_map).round(3))
+
     acf = acf_by_asset_class(returns, asset_map)
     print("\navg rank autocorrelation by asset class:")
     print(acf.round(4))
+    print("\nt-stats of the averages:")
+    print(acf_tstats(returns, asset_map).round(2))
+
+    print("\npooled regression t-stats by lag (MOP 2012, Fig. 1):")
+    print(pooled_predictability(returns).round(2).to_string())
 
     plot_path = Path("./plots/autocorr_by_asset_class.png")
     plot_acf(acf, plot_path)

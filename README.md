@@ -9,19 +9,33 @@ Multi-asset CTA trend-following backtest system.
 - `panel.py`: `Panel`, loads raw data + asset map into the daily timeline
 - `engine.py`: `run_backtest()`, runs a `Strategy` over a `Panel`
 - `strategy.py`: `ModularStrategy` and the concrete models
-- `main.py`: entry point, wires data paths, models and params, then runs the backtest
+- `main.py`: entry point, wires data paths, models and params; `STRATEGIES` names every configuration we run
+- `analysis.py`: performance statistics (daily and monthly), Newey-West regressions, Sharpe tests
+- `eda.py`: summary statistics, outliers, autocorrelation with t-stats, pooled predictability regression
+- `benchmark_comparison.py`: TSMOM vs the static benchmark, alpha against market/factor benchmarks, SG Trend
+- `risk_tests.py`: checks whether each risk model's predicted vol matches realised vol (bias statistic)
+- `lookback_study.py`: Sharpe ratio for every lookback from 1 to 24 months, and the 1/3/6/12 blend
+- `tests/`: `uv run pytest`
 
 ## Data
 
 - `data/raw/*.csv`
 - `data/processed/AssetMapCsv.csv`
+- `data/processed/MonthlyReturns.csv` (course file, used to check our monthly returns)
+- `data/processed/Lecture3_livedata.xlsx` (course file with the SG Trend index, for `benchmark_comparison.py`)
+- `data/external/`: Fama-French factors, downloaded automatically from the Ken French library on first use
 
 ## Running
 
 This project uses [uv](https://docs.astral.sh/uv/) for Python environment and dependency management.
 ```
 uv sync
-uv run main.py
+uv run main.py                   # data check + every strategy in STRATEGIES (about 30 s)
+uv run benchmark_comparison.py
+uv run risk_tests.py
+uv run lookback_study.py
+uv run eda.py
+uv run pytest
 ```
 
 ## Scope
@@ -44,7 +58,35 @@ Strategy development should only ever touch:
 
 `ModularStrategy` decides when to rebalance (`rebalance="daily"` or `"monthly"`). The models never do.
 
-Current models: `TsmomAlpha`, `SampleCovarianceRiskModel`, `InverseVolPCM` (weight = signal / vol, scaled so gross exposure equals `target_gross_leverage`).
+Current models:
+
+| Kind | Model | What it does |
+|---|---|---|
+| Alpha | `TsmomAlpha` | sign of the return over the last `lookback` daily bars |
+| Alpha | `MonthlyTsmomAlpha` | sign of the summed past monthly returns, on each symbol's own month end. Several lookbacks are averaged, e.g. `(1, 3, 6, 12)` |
+| Alpha | `StaticLongAlpha` | static benchmark: always long, with the same history requirement as TSMOM |
+| Risk | `SampleCovarianceRiskModel` | covariance of the last `risk_lookback` daily returns |
+| Risk | `ExpandingMonthlyRiskModel` | covariance of all past monthly returns, at least 36 months. Use `risk_lookback=ALL_HISTORY` |
+| Risk | `EwmaMonthlyRiskModel` | EWMA covariance of monthly returns (12-month half-life), reacts faster |
+| Risk | `EwmaDailyRiskModel` | Moskowitz, Ooi and Pedersen (2012): EWMA of daily returns, centre of mass 60 days, diagonal |
+| PCM | `InverseVolPCM` | weight = signal / vol, scaled so gross exposure equals `target_gross_leverage` |
+| PCM | `EqualRiskPCM` | signal x 40% / vol, then 1/N; flat until 10 symbols are live |
+| PCM | `VolTargetPCM` | wraps another PCM and scales its weights so sqrt(w' cov w) equals `target_vol` |
+
+## Results
+
+`STRATEGIES["TSMOM 12m (baseline)"]` is the monthly 12-month TSMOM baseline. Monthly returns from Feb-1976 to Dec-2014, no costs:
+
+| Strategy | Avg | Std | Sharpe | Max DD |
+|---|---|---|---|---|
+| TSMOM 12m (baseline) | 11.1% | 10.9% | 1.01 | -25% |
+| Static benchmark | 6.8% | 14.4% | 0.47 | -68% |
+| Vol target 11% (expanding covariance) | 11.9% | 10.9% | 1.10 | -19% |
+| Vol target 11%, EWMA risk | 13.6% | 11.1% | 1.23 | -14% |
+| Blend 1/3/6/12m | 9.3% | 9.4% | 0.99 | -13% |
+| Daily EWMA sizing (MOP 2012) | 15.6% | 12.1% | 1.29 | -15% |
+
+These are in-sample and before costs, so treat the variants as ideas to test, not results.
 
 ## Writing an alpha
 

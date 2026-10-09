@@ -1,44 +1,59 @@
+import io
+import urllib.request
+import zipfile
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# Lecture 5 baseline: TSMOM vs static benchmark on monthly returns.
-# Vol-adjust each instrument to 40% annualized using full-sample vol (as in the lecture), then compare:
-#   TSMOM  = sign of past 12-month return x next month's return
-#   STATIC = always long
-# both equal-weighted across instruments.
+from analysis import monthly_returns, ols
+from engine import run_backtest
+from main import BASELINE, SAMPLE_START, STRATEGIES, load_panel, monthly_returns_from_bars
 
-TARGET_VOL = 0.40
-LOOKBACK = 12
-MIN_INSTRUMENTS = 10
+# Baseline TSMOM vs the static benchmark, both run through the backtest engine.
+#   TSMOM  = sign of the past 12 monthly returns x 40% / vol, 1/N
+#   STATIC = always long, same instruments, dates and sizing
+# Volatility only uses data up to each month end. (The first version of this script used
+# full-sample volatility, which looks ahead.) Then: alpha against market and factor
+# benchmarks, crisis behaviour, and the SG Trend index of live CTAs.
+
+FACTOR_DIR = Path("./data/external")
+SG_TREND_PATH = Path("./data/processed/Lecture3_livedata.xlsx")
+FRENCH_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+FRENCH_FILES = ["F-F_Research_Data_Factors", "F-F_Momentum_Factor", "F-F_Research_Data_5_Factors_2x3"]
 
 
-def load_monthly_returns(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(path, index_col=0, parse_dates=True)
-    df.index = df.index.to_period("M")
+def read_french_csv(path: Path) -> pd.DataFrame:
+    """Monthly rows of a Ken French factor file, converted from percent to decimals."""
+    lines = path.read_text().splitlines()
+    header_row = next(i for i, line in enumerate(lines) if line.startswith(","))
+    df = pd.read_csv(path, skiprows=header_row, index_col=0)
+    df.index = df.index.astype(str).str.strip()
+    df = df[df.index.str.len() == 6]  # yyyymm rows only, which drops the annual block
+    df.index = pd.PeriodIndex(df.index, freq="M")
+    df.columns = df.columns.str.strip()
+    return df.astype(float) / 100
+
+
+def load_factors() -> pd.DataFrame:
+    """Fama-French factors plus momentum (UMD). Downloaded from the Ken French library the first time."""
+    FACTOR_DIR.mkdir(parents=True, exist_ok=True)
+    for name in FRENCH_FILES:
+        if not (FACTOR_DIR / f"{name}.csv").exists():
+            with urllib.request.urlopen(FRENCH_URL + f"{name}_CSV.zip") as response:
+                zipfile.ZipFile(io.BytesIO(response.read())).extractall(FACTOR_DIR)
+    ff3 = read_french_csv(FACTOR_DIR / "F-F_Research_Data_Factors.csv")
+    umd = read_french_csv(FACTOR_DIR / "F-F_Momentum_Factor.csv").rename(columns={"Mom": "UMD"})
+    ff5 = read_french_csv(FACTOR_DIR / "F-F_Research_Data_5_Factors_2x3.csv")[["RMW", "CMA"]]
+    return ff3.join(umd).join(ff5)
+
+
+def load_sg_trend() -> pd.DataFrame:
+    """Course file: SG Trend index, Fama-French factors, RF and GSCI, 2000-2014."""
+    df = pd.read_excel(SG_TREND_PATH, index_col=0)
+    df.index = pd.PeriodIndex(df.index, freq="M")
     return df
-
-
-def build_strategy_returns(returns: pd.DataFrame) -> pd.DataFrame:
-    scale = TARGET_VOL / (returns.std() * 12**0.5)
-    scaled = returns * scale
-
-    # signal known at end of month t-1, earns month t
-    past = returns.rolling(LOOKBACK, min_periods=LOOKBACK).sum()
-    position = np.sign(past).shift(1)
-
-    # TSMOM: only instruments with both a position and a return
-    live = position.notna() & scaled.notna()
-    out = pd.DataFrame(
-        {
-            # "STATIC": scaled.where(live).mean(axis=1), # only instruments with a signal
-            "STATIC": scaled.mean(axis=1),
-            "TSMOM": (position * scaled).where(live).mean(axis=1),
-        }
-    )
-    return out[live.sum(axis=1) >= MIN_INSTRUMENTS]
 
 
 def summarize(rets: pd.DataFrame) -> pd.DataFrame:
@@ -54,29 +69,21 @@ def summarize(rets: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def alpha_regression(rets: pd.DataFrame) -> dict[str, float]:
-    # OLS of TSMOM on STATIC: TSMOM_t = alpha + beta * STATIC_t + e_t
-    x = rets["STATIC"].to_numpy()
-    y = rets["TSMOM"].to_numpy()
-    n = len(x)
+def to_quarterly(r: pd.Series) -> pd.Series:
+    """Sum of monthly returns in each complete calendar quarter."""
+    r = r.dropna()
+    quarters = r.index.asfreq("Q")
+    count = r.groupby(quarters).count()
+    return r.groupby(quarters).sum()[count == 3]
 
-    # manually computed; can use scipy or statsmodel for conducting regression
-    x_dm = x - x.mean()
-    beta = (x_dm * (y - y.mean())).sum() / (x_dm**2).sum()
-    alpha = y.mean() - beta * x.mean()
-    resid = y - alpha - beta * x
 
-    sigma2 = (resid**2).sum() / (n - 2)
-    se_beta = (sigma2 / (x_dm**2).sum()) ** 0.5
-    se_alpha = (sigma2 * (1.0 / n + x.mean() ** 2 / (x_dm**2).sum())) ** 0.5
-    return {
-        "alpha (ann.)": alpha * 12,
-        "alpha t-stat": alpha / se_alpha,
-        "beta": beta,
-        "beta t-stat": beta / se_beta,
-        "R^2": 1.0 - (resid**2).sum() / ((y - y.mean()) ** 2).sum(),
-        "resid vol (ann.)": resid.std(ddof=2) * 12**0.5,
-    }
+def regime_returns(series: pd.DataFrame, market: pd.Series, q: float = 0.2) -> pd.DataFrame:
+    """Annualised average return in the market's worst 20%, middle 60% and best 20% of months."""
+    m = market.dropna()
+    regime = pd.Series("Normal", index=m.index)
+    regime[m <= m.quantile(q)] = "Bear"
+    regime[m >= m.quantile(1 - q)] = "Bull"
+    return (series.reindex(m.index).groupby(regime).mean() * 12).loc[["Bear", "Normal", "Bull"]]
 
 
 def plot_cumulative_returns(cumulative: pd.DataFrame, out_path: Path):
@@ -107,27 +114,44 @@ def plot_cumulative_returns(cumulative: pd.DataFrame, out_path: Path):
 
 
 def main():
-    returns = load_monthly_returns(Path("./data/processed/MonthlyReturns.csv"))
-    rets = build_strategy_returns(returns)
+    panel = load_panel()
+    tsmom = monthly_returns(run_backtest(panel, STRATEGIES[BASELINE]())).loc[SAMPLE_START:]
+    static = monthly_returns(run_backtest(panel, STRATEGIES["Static benchmark"]())).loc[SAMPLE_START:]
+    rets = pd.DataFrame({"STATIC": static, "TSMOM": tsmom}).dropna()
 
     print(f"sample: {rets.index[0]} to {rets.index[-1]} ({len(rets)} months)")
-    print(
-        summarize(rets).to_string(
-            formatters={
-                "Avg": "{:.2%}".format,
-                "Std": "{:.2%}".format,
-                "SR": "{:.2f}".format,
-                "Corr(Static)": "{:.2f}".format,
-            }
-        )
-    )
+    print(summarize(rets).round(3).to_string())
 
-    reg = alpha_regression(rets)
-    print("\nregression: TSMOM = alpha + beta * STATIC + e (monthly)")
-    print(f"  alpha (ann.):  {reg['alpha (ann.)']:.2%}  (t = {reg['alpha t-stat']:.2f})")
-    print(f"  beta:          {reg['beta']:.3f}  (t = {reg['beta t-stat']:.2f})")
-    print(f"  R^2:           {reg['R^2']:.3f}")
-    print(f"  resid vol (ann.): {reg['resid vol (ann.)']:.2%}")
+    # alpha against each benchmark, monthly, Newey-West t-stats
+    factors = load_factors().reindex(rets.index)
+    t_bond = monthly_returns_from_bars(panel)["US"]
+    t_bond.index = t_bond.index.to_period("M")
+    benchmarks = {
+        "Static benchmark": rets[["STATIC"]],
+        "US equity (Mkt-RF)": factors[["Mkt-RF"]],
+        "60/40 (Mkt-RF / T-bond fut.)": (0.6 * factors["Mkt-RF"] + 0.4 * t_bond.reindex(rets.index)).to_frame("60/40"),
+        "Carhart 4-factor": factors[["Mkt-RF", "SMB", "HML", "UMD"]],
+        "FF 5-factor + UMD": factors[["Mkt-RF", "SMB", "HML", "RMW", "CMA", "UMD"]],
+    }
+    alphas = pd.DataFrame({name: ols(rets["TSMOM"], X) for name, X in benchmarks.items()}).T
+    print("\nregression: TSMOM = alpha + beta' benchmark + e (monthly, Newey-West)")
+    print(alphas[["alpha", "t_alpha", "R2"]].round(3).to_string())
+
+    # crisis behaviour: quarterly smile (MOP 2012, Table 3) and returns by market regime
+    q = pd.DataFrame({"s": to_quarterly(rets["TSMOM"]), "m": to_quarterly(factors["Mkt-RF"])}).dropna()
+    smile = ols(q["s"], pd.DataFrame({"Mkt": q["m"], "Mkt2": q["m"] ** 2}), nw_lags=2, periods=4)
+    print(f"\nquarterly smile: beta(Mkt^2) = {smile['beta_Mkt2']:.2f} (t = {smile['t_Mkt2']:.1f})")
+    print(regime_returns(rets.join(factors["Mkt-RF"]), factors["Mkt-RF"]).round(3).to_string())
+
+    # SG Trend index, 2000-2014. SG is net of fees and earns cash interest, so compare SG - RF.
+    sg = load_sg_trend()
+    sg_excess = (sg["SG Trend"] - sg["RF"]).rename("SG Trend - RF")
+    both = pd.concat([rets["TSMOM"], sg_excess], axis=1).dropna()
+    fit = ols(both["SG Trend - RF"], both[["TSMOM"]])
+    print(f"\nSG Trend {both.index[0]} to {both.index[-1]}: corr with TSMOM {both.corr().iloc[0, 1]:.2f}, "
+          f"SG = {fit['beta_TSMOM']:.2f} x TSMOM, alpha {fit['alpha']:.1%} (t = {fit['t_alpha']:.1f})")
+    print(f"Sharpe: TSMOM {both['TSMOM'].mean() / both['TSMOM'].std() * np.sqrt(12):.2f}, "
+          f"SG - RF {sg_excess.mean() / sg_excess.std() * np.sqrt(12):.2f}")
 
     cumulative = (1 + rets[["TSMOM", "STATIC"]]).cumprod() - 1
     # cumulative = rets[["TSMOM", "STATIC"]].cumsum() # additive cumulation, as in the lecture
