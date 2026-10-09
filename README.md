@@ -9,20 +9,17 @@ Multi-asset CTA trend-following backtest system.
 - `panel.py`: `Panel`, loads raw data + asset map into the daily timeline
 - `engine.py`: `run_backtest()`, runs a `Strategy` over a `Panel`
 - `strategy.py`: `ModularStrategy` and the concrete models
-- `main.py`: entry point, wires data paths, models and params; `STRATEGIES` names every configuration we run
-- `analysis.py`: performance statistics (daily and monthly), Newey-West regressions, Sharpe tests
-- `eda.py`: summary statistics, outliers, autocorrelation with t-stats, pooled predictability regression
-- `benchmark_comparison.py`: TSMOM vs the static benchmark, alpha against market/factor benchmarks, SG Trend
-- `risk_tests.py`: checks whether each risk model's predicted vol matches realised vol (bias statistic)
-- `lookback_study.py`: Sharpe ratio for every lookback from 1 to 24 months, and the 1/3/6/12 blend
+- `main.py`: the entry point. Wires data paths, models and params (`STRATEGIES` names every configuration), runs the backtests and calls the analysis
+- `analysis.py`: performance statistics, regressions, benchmark and SG Trend comparison, risk model check, lookback study, asset-class and autocorrelation statistics
 - `tests/`: `uv run pytest`
+- `eda.py`, `benchmark_comparison.py`: legacy scripts, kept for reference
 
 ## Data
 
 - `data/raw/*.csv`
 - `data/processed/AssetMapCsv.csv`
 - `data/processed/MonthlyReturns.csv` (course file, used to check our monthly returns)
-- `data/processed/Lecture3_livedata.xlsx` (course file with the SG Trend index, for `benchmark_comparison.py`)
+- `data/processed/Lecture3_livedata.xlsx` (course file with the SG Trend index)
 - `data/external/`: Fama-French factors, downloaded automatically from the Ken French library on first use
 
 ## Running
@@ -30,11 +27,7 @@ Multi-asset CTA trend-following backtest system.
 This project uses [uv](https://docs.astral.sh/uv/) for Python environment and dependency management.
 ```
 uv sync
-uv run main.py                   # data check + every strategy in STRATEGIES (about 30 s)
-uv run benchmark_comparison.py
-uv run risk_tests.py
-uv run lookback_study.py
-uv run eda.py
+uv run main.py      # about 80 seconds; tables are also saved to outputs/
 uv run pytest
 ```
 
