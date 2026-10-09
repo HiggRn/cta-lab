@@ -356,6 +356,26 @@ def bias_statistic(realised: pd.Series, predicted_vol: pd.Series, window: int = 
     return {"bias": z.std(), "share in band": ((rolling > 1 - band) & (rolling < 1 + band)).mean()}
 
 
+def risk_model_check(daily_returns: pd.DataFrame, portfolios: dict[str, BacktestResult],
+                     monthly: dict[str, pd.Series], risk_models: dict) -> pd.DataFrame:
+    """Bias statistic of each portfolio under each risk model.
+
+    risk_models maps a name to (model, ignore correlations?, days of history or None for all).
+    monthly holds each portfolio's realised monthly returns.
+    """
+    weights = next(iter(portfolios.values())).weights
+    month_ends = weights.index.to_series().groupby(weights.index.to_period("M")).max()
+    first_decision = weights.abs().sum(axis=1).gt(0).idxmax()
+    month_ends = pd.DatetimeIndex(month_ends[month_ends >= first_decision])
+    rows = []
+    for name, (model, diagonal, lookback) in risk_models.items():
+        covs = forecast_covariances(daily_returns, month_ends, model, lookback)
+        for portfolio, result in portfolios.items():
+            check = bias_statistic(monthly[portfolio], predicted_vols(result, covs, diagonal))
+            rows.append({"Risk model": name, "Portfolio": portfolio, **check})
+    return pd.DataFrame(rows).set_index(["Portfolio", "Risk model"])
+
+
 # ---- lookbacks --------------------------------------------------------------------------
 
 

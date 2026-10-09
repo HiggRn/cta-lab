@@ -8,16 +8,14 @@ from analysis import (
     analyze_backtest,
     asset_class_stats,
     autocorrelation_tstats,
-    bias_statistic,
     deflated_sharpe,
-    forecast_covariances,
     load_factors,
     load_sg_trend,
     monthly_returns,
     performance_table,
     pooled_predictability,
-    predicted_vols,
     regime_returns,
+    risk_model_check,
     sg_trend_comparison,
     sharpe_by_period,
     sharpe_diff_test,
@@ -217,21 +215,6 @@ def benchmark_analysis(panel: Panel, tsmom: pd.Series, static: pd.Series) -> Non
           f"alpha {sg['alpha']:.1%} (t = {sg['t_alpha']:.1f}); Sharpe TSMOM {sg['SR TSMOM']:.2f}, SG - RF {sg['SR SG - RF']:.2f}")
 
 
-def risk_model_check(panel: Panel, results: dict, monthly: dict) -> pd.DataFrame:
-    """Predicted vs realised risk of the baseline and the static benchmark under each risk model."""
-    weights = results[BASELINE].weights
-    month_ends = weights.index.to_series().groupby(weights.index.to_period("M")).max()
-    first_decision = weights.abs().sum(axis=1).gt(0).idxmax()
-    month_ends = pd.DatetimeIndex(month_ends[month_ends >= first_decision])
-    rows = []
-    for name, (model, diagonal, lookback) in RISK_MODEL_CHECKS.items():
-        covs = forecast_covariances(panel.observed_returns, month_ends, model, lookback)
-        for portfolio in (BASELINE, STATIC):
-            check = bias_statistic(monthly[portfolio], predicted_vols(results[portfolio], covs, diagonal))
-            rows.append({"Risk model": name, "Portfolio": portfolio, **check})
-    return pd.DataFrame(rows).set_index(["Portfolio", "Risk model"])
-
-
 def lookback_study(panel: Panel, monthly: dict) -> None:
     returns = {}
     for k in range(1, 25):
@@ -272,7 +255,8 @@ def main():
     benchmark_analysis(panel, monthly[BASELINE], monthly[STATIC])
 
     print("\n== Risk model check: realised / predicted risk (1 = right, above 1 = risk under-predicted)")
-    check = risk_model_check(panel, results, monthly)
+    portfolios = {name: results[name] for name in (BASELINE, STATIC)}
+    check = risk_model_check(panel.observed_returns, portfolios, monthly, RISK_MODEL_CHECKS)
     check.to_csv(OUTPUT_DIR / "risk_model_check.csv")
     print(check.round(2).to_string())
 
