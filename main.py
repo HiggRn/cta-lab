@@ -89,7 +89,7 @@ def main() -> None:
 
     strategies = build_strategies(panel)
     results = {
-        name: run_backtest(panel=panel, strategy=strat, cost_bps=0.0, exec_lag=1)
+        name: run_backtest(panel=panel, strategy=strat, cost_bps=0.0, exec_lag=2)
         for name, strat in strategies.items()
     }
     monthly = {

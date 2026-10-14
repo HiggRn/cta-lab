@@ -316,6 +316,7 @@ class TwoTierHrpPCM(PortfolioConstructionModel):
         self.buffer = buffer
         self.speed = speed
         self._prev: dict[str, float] = {}
+        self._conv_ref = None
 
     def create_targets(
         self, signals: dict[str, float], cov: pd.DataFrame
@@ -359,13 +360,14 @@ class TwoTierHrpPCM(PortfolioConstructionModel):
             self._prev = {}
             return {}
 
-        scale = min(
-            (self.target_vol * conviction) / port_vol,
-            2.5 / max(port_vol / conviction, 1e-4),
-        )
+        ref = conviction if self._conv_ref is None else self._conv_ref
+        self._conv_ref = 0.998 * ref + 0.002 * conviction  # slow EMA, past data only
+        mult = min(max(conviction / max(ref, 0.05), 0.5), 1.5)
+        eff_target = self.target_vol * mult
+        scale = eff_target / port_vol
         opt_w = raw_w * scale
 
-        thresh = self.buffer * (self.target_vol / math.sqrt(len(live)))
+        thresh = self.buffer * eff_target / math.sqrt(len(live))
         targets: dict[str, float] = {}
         for s, w_opt, v in zip(live, opt_w, sub_vol):
             w_old = self._prev.get(s, 0.0)
