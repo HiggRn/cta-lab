@@ -70,6 +70,9 @@ class AlphaModel(abc.ABC):
 
 
 class RiskModel(abc.ABC):
+    def update(self, bars: dict[str, Bar]) -> None:
+        """Optional hook for bar-driven risk indicators."""
+
     @abc.abstractmethod
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
         """Annualized covariance, indexed and columned by symbol."""

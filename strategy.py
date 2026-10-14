@@ -1,5 +1,9 @@
+import math
+
 import numpy as np
 import pandas as pd
+from scipy.cluster.hierarchy import leaves_list, linkage
+from scipy.spatial.distance import squareform
 
 from common import (
     AlphaModel,
@@ -9,10 +13,14 @@ from common import (
     RiskModel,
     Strategy,
 )
-from indicators.momentum import Momentum
-from indicators.monthly_returns import MonthlyReturn
+from indicators import (
+    EfficiencyRatio,
+    EwmaCrossover,
+    MonthlyReturn,
+    OiFlow,
+    YangZhangVol,
+)
 
-# pass as risk_lookback when a risk model needs every day of history (get_returns clips at day 0)
 ALL_HISTORY = 1_000_000
 
 
@@ -22,8 +30,8 @@ class ModularStrategy(Strategy):
         alpha_model: AlphaModel,
         risk_model: RiskModel,
         pcm: PortfolioConstructionModel,
-        risk_lookback: int = 60,
-        rebalance: str = "monthly",
+        risk_lookback: int = 252,
+        rebalance: str = "daily",
     ):
         if rebalance not in ("daily", "monthly"):
             raise ValueError(f"Unsupported rebalance: {rebalance}")
@@ -40,73 +48,342 @@ class ModularStrategy(Strategy):
         if not bars:
             return None
 
-        # alpha runs on every bar; symbols it does not return keep their last signal
         self._signals.update(self.alpha_model.update(bars, context))
+        self.risk_model.update(bars)
 
-        if not self._is_rebalance_bar(bars):
+        if self.rebalance == "monthly" and not any(
+            b.is_calendar_month_end for b in bars.values()
+        ):
             return None
 
         cov = self.risk_model.covariance(context.get_returns(self.risk_lookback))
         return self.pcm.create_targets(self._signals, cov)
 
-    def _is_rebalance_bar(self, bars: dict[str, Bar]) -> bool:
-        if self.rebalance == "daily":
-            return True
-        return any(b.is_calendar_month_end for b in bars.values())
+
+# ---- 1. Alpha Layer ------------------------------------------------------------------
 
 
-class TsmomAlpha(AlphaModel):
-    def __init__(self, lookback: int = 252):
-        self.lookback = lookback
-        self._momentum: dict[str, Momentum] = {}
+class TrendAlpha(AlphaModel):
+    """Combines multi-scale EwmaCrossover, EfficiencyRatio, and OiFlow into [-1, 1]."""
+
+    def __init__(
+        self,
+        spans: tuple[tuple[int, int], ...] = ((8, 24), (16, 48), (32, 96), (64, 192)),
+        er_lookback: int = 20,
+        oi_weight: float = 0.20,
+    ):
+        self.spans = spans
+        self.er_lookback = er_lookback
+        self.oi_weight = oi_weight
+        self._trends: dict[str, list[EwmaCrossover]] = {}
+        self._er: dict[str, EfficiencyRatio] = {}
+        self._oi: dict[str, OiFlow] = {}
 
     def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
-        signals = {}
-        for symbol, bar in bars.items():
-            if symbol not in self._momentum:
-                self._momentum[symbol] = Momentum(self.lookback)
-            ind = self._momentum[symbol]
-            ind.update(bar)
-            if ind.is_ready:
-                signals[symbol] = float(np.sign(ind.value))
+        signals: dict[str, float] = {}
+        for s, bar in bars.items():
+            if s not in self._trends:
+                self._trends[s] = [EwmaCrossover(f, sl) for f, sl in self.spans]
+                self._er[s] = EfficiencyRatio(self.er_lookback)
+                self._oi[s] = OiFlow()
+
+            trends, er, oi = self._trends[s], self._er[s], self._oi[s]
+            for t in trends:
+                t.update(bar)
+            er.update(bar)
+            oi.update(bar)
+
+            if not (all(t.is_ready for t in trends) and er.is_ready):
+                continue
+
+            # Average sigmoid-mapped trend forecasts across scales
+            raw = sum(math.tanh(t.value / 2.0) for t in trends) / len(trends)
+            er_scale = 0.5 + 0.5 * math.sqrt(er.value)
+            oi_scale = 1.0 + (self.oi_weight * oi.value if oi.is_ready else 0.0)
+            signals[s] = max(-1.0, min(1.0, raw * er_scale * oi_scale))
+
         return signals
 
 
-class SampleCovarianceRiskModel(RiskModel):
-    def __init__(self, periods_per_year: int = 252, min_periods: int = 20):
-        self.periods_per_year = periods_per_year
-        self.min_periods = min_periods
+# ---- 2. Risk Layer -------------------------------------------------------------------
+
+
+def nw_shrunk_correlation(
+    returns: pd.DataFrame,
+    asset_classes: pd.Series,
+    halflife: float = 60.0,
+    nw_lags: int = 2,
+    shrinkage: float = 0.25,
+) -> np.ndarray:
+    """EWMA Newey-West correlation matrix shrunk toward AssetClass block prior."""
+    r = returns.to_numpy(dtype=np.float64)
+    n_obs, n_sym = r.shape
+    if n_obs < 20 or n_sym <= 1:
+        return np.eye(n_sym)
+
+    obs = np.isfinite(r)
+    std = np.nanstd(r, axis=0)
+    z = np.where(obs, r / np.where(std > 1e-8, std, 1.0), 0.0)
+    z = np.clip(z, -4.0, 4.0)
+
+    w = (0.5 ** (np.arange(n_obs - 1, -1, -1) / halflife))[:, None] * obs
+    z_mean = (w * z).sum(axis=0, keepdims=True) / np.maximum(
+        w.sum(axis=0, keepdims=True), 1e-12
+    )
+    z = np.where(obs, z - z_mean, 0.0)
+    wz = w * z
+
+    def _lag_cov(lag: int) -> np.ndarray:
+        denom = w[lag:].T @ obs[: n_obs - lag].astype(float)
+        return np.where(
+            denom > 1e-6,
+            (wz[lag:].T @ z[: n_obs - lag]) / np.maximum(denom, 1e-12),
+            0.0,
+        )
+
+    c_nw = _lag_cov(0)
+    for lag in range(1, min(nw_lags + 1, n_obs)):
+        weight = 1.0 - lag / (nw_lags + 1.0)
+        g = _lag_cov(lag)
+        c_nw += weight * (g + g.T)
+
+    d = np.sqrt(np.maximum(np.diag(c_nw), 1e-8))
+    corr = np.clip(c_nw / np.outer(d, d), -0.99, 0.99)
+    np.fill_diagonal(corr, 1.0)
+
+    # Block target by AssetClass
+    classes = asset_classes.reindex(returns.columns).to_numpy()
+    target = np.eye(n_sym)
+    for cls in np.unique(classes):
+        idx = np.where(classes == cls)[0]
+        if len(idx) > 1:
+            sub = corr[np.ix_(idx, idx)]
+            rho = float(
+                np.clip(np.nanmean(sub[~np.eye(len(idx), dtype=bool)]), 0.0, 0.85)
+            )
+            target[np.ix_(idx, idx)] = rho
+            np.fill_diagonal(target, 1.0)
+
+    shrunk = (1.0 - shrinkage) * corr + shrinkage * target
+    eigvals, eigvecs = np.linalg.eigh(shrunk)
+    psd = eigvecs @ np.diag(np.maximum(eigvals, 1e-3)) @ eigvecs.T
+    d_psd = np.sqrt(np.maximum(np.diag(psd), 1e-8))
+    psd /= np.outer(d_psd, d_psd)
+    np.fill_diagonal(psd, 1.0)
+    return psd
+
+
+class YangZhangRiskModel(RiskModel):
+    """Blends fast/slow YangZhangVol for diagonal D_t and Newey-West shrunk correlation for R_t."""
+
+    def __init__(
+        self,
+        asset_classes: pd.Series,
+        fast_hl: float = 15.0,
+        slow_hl: float = 60.0,
+        corr_hl: float = 60.0,
+        min_days: int = 60,
+        corr_Refresh: int = 5,
+    ):
+        self.asset_classes = asset_classes
+        self.fast_hl = fast_hl
+        self.slow_hl = slow_hl
+        self.corr_hl = corr_hl
+        self.min_days = min_days
+        self.corr_refresh = corr_Refresh
+
+        self._fast_yz: dict[str, YangZhangVol] = {}
+        self._slow_yz: dict[str, YangZhangVol] = {}
+        self._steps = 0
+        self._cached_corr: pd.DataFrame | None = None
+        self._last_corr_step = -1
+
+    def update(self, bars: dict[str, Bar]) -> None:
+        self._steps += 1
+        for s, bar in bars.items():
+            if s not in self._fast_yz:
+                self._fast_yz[s] = YangZhangVol(self.fast_hl, self.min_days)
+                self._slow_yz[s] = YangZhangVol(self.slow_hl, self.min_days)
+            self._fast_yz[s].update(bar)
+            self._slow_yz[s].update(bar)
 
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
-        # pairwise-complete: NaN days are skipped, thin history gives NaN
-        return returns.cov(min_periods=self.min_periods) * self.periods_per_year
+        symbols = list(returns.columns)
+        vols = np.full(len(symbols), np.nan)
+
+        for i, s in enumerate(symbols):
+            f, sl = self._fast_yz.get(s), self._slow_yz.get(s)
+            if f is not None and sl is not None and sl.is_ready:
+                vols[i] = math.sqrt(0.7 * (f.value**2) + 0.3 * (sl.value**2))
+
+        # Fallback for standalone risk_model_check calls where update() wasn't run
+        missing = np.isnan(vols)
+        if missing.any():
+            sub = returns.iloc[:, missing]
+            vf = (
+                sub.ewm(halflife=self.fast_hl, min_periods=self.min_days).var().iloc[-1]
+            )
+            vs = (
+                sub.ewm(halflife=self.slow_hl, min_periods=self.min_days).var().iloc[-1]
+            )
+            vols[missing] = np.sqrt((0.7 * vf + 0.3 * vs) * 252).to_numpy()
+
+        valid = np.isfinite(vols) & (vols > 1e-4)
+        if not valid.any():
+            return pd.DataFrame(np.nan, index=symbols, columns=symbols)
+
+        if (
+            self._cached_corr is None
+            or self._steps == 0
+            or (self._steps - self._last_corr_step >= self.corr_refresh)
+        ):
+            active_syms = [s for s, v in zip(symbols, valid) if v]
+            corr_act = nw_shrunk_correlation(
+                returns[active_syms], self.asset_classes, self.corr_hl
+            )
+            self._cached_corr = pd.DataFrame(
+                corr_act, index=active_syms, columns=active_syms
+            )
+            self._last_corr_step = self._steps
+
+        corr = (
+            self._cached_corr.reindex(index=symbols, columns=symbols)
+            .fillna(0.0)
+            .to_numpy(copy=True)
+        )
+        np.fill_diagonal(corr, 1.0)
+        cov = corr * np.outer(vols, vols)
+        cov[~valid, :] = np.nan
+        cov[:, ~valid] = np.nan
+        return pd.DataFrame(cov, index=symbols, columns=symbols)
 
 
-class InverseVolPCM(PortfolioConstructionModel):
-    def __init__(self, target_gross_leverage: float = 1.0):
-        self.target_gross_leverage = target_gross_leverage
+# ---- 3. Portfolio Construction Layer -------------------------------------------------
+
+
+def hrp_bisection_weights(cov: np.ndarray, corr: np.ndarray) -> np.ndarray:
+    """Lopez de Prado HRP recursive bisection weights for a single cluster."""
+    n = cov.shape[0]
+    if n == 1:
+        return np.ones(1)
+
+    dist = np.sqrt(np.clip(0.5 * (1.0 - corr), 0.0, 1.0))
+    np.fill_diagonal(dist, 0.0)
+    order = list(leaves_list(linkage(squareform(dist, checks=False), method="single")))
+
+    def _cluster_var(idx: list[int]) -> float:
+        c = cov[np.ix_(idx, idx)]
+        inv_v = 1.0 / np.maximum(np.diag(c), 1e-10)
+        w = inv_v / inv_v.sum()
+        return float(max(w @ c @ w, 1e-12))
+
+    weights = np.ones(n)
+    clusters = [order]
+    while clusters:
+        next_clusters = []
+        for cl in clusters:
+            if len(cl) <= 1:
+                continue
+            mid = len(cl) // 2
+            left, right = cl[:mid], cl[mid:]
+            vl, vr = _cluster_var(left), _cluster_var(right)
+            alpha = 1.0 - vl / (vl + vr)
+            weights[left] *= alpha
+            weights[right] *= 1.0 - alpha
+            if len(left) > 1:
+                next_clusters.append(left)
+            if len(right) > 1:
+                next_clusters.append(right)
+        clusters = next_clusters
+
+    return weights / weights.sum()
+
+
+class TwoTierHrpPCM(PortfolioConstructionModel):
+    """Top tier: equal risk across AssetClasses. Bottom tier: intra-class HRP bisection."""
+
+    def __init__(
+        self,
+        asset_classes: pd.Series,
+        target_vol: float = 0.11,
+        min_assets: int = 10,
+        buffer: float = 0.12,
+        speed: float = 0.55,
+    ):
+        self.asset_classes = asset_classes
+        self.target_vol = target_vol
+        self.min_assets = min_assets
+        self.buffer = buffer
+        self.speed = speed
+        self._prev: dict[str, float] = {}
 
     def create_targets(
         self, signals: dict[str, float], cov: pd.DataFrame
     ) -> dict[str, float]:
-        vol = pd.Series(np.sqrt(np.diag(cov)), index=cov.index)
-
-        raw = {}
-        for symbol, signal in signals.items():
-            if signal == 0.0 or symbol not in vol.index:
-                continue
-            if pd.notna(vol[symbol]) and vol[symbol] > 1e-4:
-                raw[symbol] = signal / vol[symbol]
-
-        gross = sum(abs(w) for w in raw.values())
-        if gross == 0.0:
+        vol = pd.Series(np.sqrt(np.maximum(np.diag(cov), 0.0)), index=cov.index)
+        live = [
+            s
+            for s, sig in signals.items()
+            if s in vol and vol[s] > 1e-4 and pd.notna(sig)
+        ]
+        if len(live) < self.min_assets:
             return {}
 
-        scale = self.target_gross_leverage / gross
-        return {s: w * scale for s, w in raw.items()}
+        sub_cov = cov.loc[live, live].fillna(0.0).to_numpy()
+        sub_vol = vol.loc[live].to_numpy()
+        sub_sig = np.array([signals[s] for s in live])
+        sub_cls = self.asset_classes.reindex(live).fillna("OTHER").to_numpy()
+
+        sub_corr = np.clip(sub_cov / np.outer(sub_vol, sub_vol), -0.99, 0.99)
+        np.fill_diagonal(sub_corr, 1.0)
+        abs_cov = np.maximum(sub_cov, 0.0)
+
+        classes = np.unique(sub_cls)
+        raw_w = np.zeros(len(live))
+        sq_conv = []
+
+        for cls in classes:
+            idx = np.where(sub_cls == cls)[0]
+            w_hrp = hrp_bisection_weights(
+                abs_cov[np.ix_(idx, idx)], sub_corr[np.ix_(idx, idx)]
+            )
+            cls_vol = math.sqrt(max(w_hrp @ abs_cov[np.ix_(idx, idx)] @ w_hrp, 1e-12))
+            raw_w[idx] = (w_hrp / cls_vol) * sub_sig[idx] / len(classes)
+
+            risk_w = w_hrp * sub_vol[idx]
+            sq_conv.append(float(np.sum((risk_w / risk_w.sum()) * (sub_sig[idx] ** 2))))
+
+        conviction = math.sqrt(float(np.mean(sq_conv)))
+        port_vol = math.sqrt(max(float(raw_w @ sub_cov @ raw_w), 0.0))
+        if conviction < 1e-4 or port_vol <= 1e-8:
+            self._prev = {}
+            return {}
+
+        scale = min(
+            (self.target_vol * conviction) / port_vol,
+            2.5 / max(port_vol / conviction, 1e-4),
+        )
+        opt_w = raw_w * scale
+
+        thresh = self.buffer * (self.target_vol / math.sqrt(len(live)))
+        targets: dict[str, float] = {}
+        for s, w_opt, v in zip(live, opt_w, sub_vol):
+            w_old = self._prev.get(s, 0.0)
+            if w_old != 0.0 and abs(w_opt - w_old) * v <= thresh:
+                w_new = w_old
+            elif w_old == 0.0:
+                w_new = float(w_opt)
+            else:
+                w_new = (1.0 - self.speed) * w_old + self.speed * float(w_opt)
+
+            if abs(w_new) * v > 1e-4:
+                targets[s] = w_new
+
+        self._prev = targets.copy()
+        return targets
 
 
-# ---- monthly TSMOM models ------------------------------------------------------------
+# ---- Baseline Reference Models (kept minimal for comparison) -------------------------
 
 
 class MonthlyTsmomAlpha(AlphaModel):
@@ -125,28 +402,20 @@ class MonthlyTsmomAlpha(AlphaModel):
         for symbol, bar in bars.items():
             if symbol not in self._monthly:
                 self._monthly[symbol] = MonthlyReturn(max(self.lookbacks))
-            monthly = self._monthly[symbol]
-            monthly.update(bar)
-            if bar.is_month_end and monthly.is_ready:
-                signals[symbol] = self.direction(list(monthly.returns))
+            ind = self._monthly[symbol]
+            ind.update(bar)
+            if bar.is_month_end and ind.is_ready:
+                rets = list(ind.returns)
+                signals[symbol] = float(
+                    np.mean([np.sign(sum(rets[-k:])) for k in self.lookbacks])
+                )
         return signals
-
-    def direction(self, monthly_returns: list[float]) -> float:
-        signs = [np.sign(sum(monthly_returns[-k:])) for k in self.lookbacks]
-        return float(np.mean(signs))
 
 
 class StaticLongAlpha(MonthlyTsmomAlpha):
-    """Static benchmark: always long, once the same history as TSMOM exists."""
-
-    def direction(self, monthly_returns: list[float]) -> float:
-        return 1.0
-
-
-def monthly_from_daily(daily_returns: pd.DataFrame) -> pd.DataFrame:
-    """Compound daily returns into calendar-month returns (NaN if a symbol had no bar that month)."""
-    months = daily_returns.index.to_period("M")
-    return (1 + daily_returns).groupby(months).prod(min_count=1) - 1
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        signals = super().update(bars, context)
+        return {s: 1.0 for s in signals}
 
 
 class ExpandingMonthlyRiskModel(RiskModel):
@@ -156,45 +425,10 @@ class ExpandingMonthlyRiskModel(RiskModel):
         self.min_months = min_months
 
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
-        return monthly_from_daily(returns).cov(min_periods=self.min_months) * 12
-
-
-class EwmaMonthlyRiskModel(RiskModel):
-    """Exponentially weighted covariance of monthly returns. Reacts faster than the expanding window."""
-
-    def __init__(self, halflife: float = 12, min_months: int = 36):
-        self.halflife = halflife
-        self.min_months = min_months
-
-    def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
-        monthly = monthly_from_daily(returns)
-        has_data = monthly.notna().to_numpy(dtype=float)
-        x = (monthly - monthly.ewm(halflife=self.halflife).mean().iloc[-1]).fillna(0).to_numpy()
-        age = np.arange(len(monthly))[::-1]
-        weight = (0.5 ** (age / self.halflife))[:, None]
-        # pairwise: each pair only uses the months where both symbols have data (0/0 -> NaN if never)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            cov = (weight * x).T @ x / ((weight * has_data).T @ has_data)
-        enough = has_data.sum(axis=0) >= self.min_months
-        cov[~enough, :] = np.nan
-        cov[:, ~enough] = np.nan
-        return pd.DataFrame(cov * 12, index=monthly.columns, columns=monthly.columns)
-
-
-class EwmaDailyRiskModel(RiskModel):
-    """Moskowitz, Ooi and Pedersen (2012): EWMA of daily returns, centre of mass 60 days.
-
-    Diagonal only (no correlations), so use it for position sizing rather than vol targeting.
-    """
-
-    def __init__(self, com: float = 60, min_days: int = 60, days_per_year: int = 261):
-        self.com = com
-        self.min_days = min_days
-        self.days_per_year = days_per_year
-
-    def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
-        var = returns.ewm(com=self.com, min_periods=self.min_days).var().iloc[-1] * self.days_per_year
-        return pd.DataFrame(np.diag(var), index=returns.columns, columns=returns.columns)
+        monthly = (1.0 + returns).groupby(returns.index.to_period("M")).prod(
+            min_count=1
+        ) - 1.0
+        return monthly.cov(min_periods=self.min_months) * 12.0
 
 
 class EqualRiskPCM(PortfolioConstructionModel):
@@ -216,29 +450,3 @@ class EqualRiskPCM(PortfolioConstructionModel):
             return {}
         n = len(live)
         return {s: x * self.position_vol / vol[s] / n for s, x in live.items()}
-
-
-class VolTargetPCM(PortfolioConstructionModel):
-    """Scales another PCM's weights so the ex-ante portfolio vol sqrt(w' cov w) equals `target_vol`."""
-
-    def __init__(self, pcm: PortfolioConstructionModel, target_vol: float = 0.11):
-        self.pcm = pcm
-        self.target_vol = target_vol
-
-    def create_targets(
-        self, signals: dict[str, float], cov: pd.DataFrame
-    ) -> dict[str, float]:
-        targets = self.pcm.create_targets(signals, cov)
-        if not targets:
-            return targets
-        vol = exante_vol(targets, cov)
-        if not vol > 0:
-            return {}
-        return {s: w * self.target_vol / vol for s, w in targets.items()}
-
-
-def exante_vol(weights: dict[str, float], cov: pd.DataFrame) -> float:
-    """Annualised sqrt(w' cov w) for an annualised covariance."""
-    w = pd.Series(weights)
-    q = cov.reindex(index=w.index, columns=w.index).fillna(0)
-    return float(np.sqrt(max(w @ q @ w, 0.0)))
