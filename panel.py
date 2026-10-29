@@ -7,6 +7,10 @@ from common import Bar
 
 
 class Panel:
+    """Loads raw OHLCV+OI futures CSVs and aligns them on a unified chronological timeline
+    without injecting any future calendar/lookahead flags.
+    """
+
     def __init__(
         self,
         raw_dirs: Path | list[Path],
@@ -18,7 +22,7 @@ class Panel:
 
         self.asset_map = pd.read_csv(asset_map_path, index_col="ID")
 
-        raw = {}
+        raw: dict[str, list[pd.DataFrame]] = {}
         for d in raw_dirs:
             for f in sorted(Path(d).glob("*.csv")):
                 symbol = f.stem
@@ -36,35 +40,54 @@ class Panel:
                 )
                 raw.setdefault(symbol, []).append(df)
 
-        frames = {s: pd.concat(dfs).sort_index() for s, dfs in raw.items()}
+        frames = {
+            s: pd.concat(dfs)
+            .sort_index()
+            .loc[lambda x: ~x.index.duplicated(keep="last")]
+            for s, dfs in raw.items()
+        }
         self.symbols = sorted(frames.keys())
         self.all_dates = pd.DatetimeIndex(
             sorted(set().union(*[df.index for df in frames.values()]))
         )
 
-        # find calendar month end (panel-wide, for cross-symbol rebalance timing)
-        month_period = self.all_dates.to_period("M")
-        is_cal_month_end_arr = np.zeros(len(self.all_dates), dtype=bool)
-        is_cal_month_end_arr[:-1] = month_period[:-1] != month_period[1:]
-        is_cal_month_end_arr[-1] = True
-        cal_month_end_map = dict(zip(self.all_dates, is_cal_month_end_arr))
+        # Construct close prices and volume DataFrames aligned to all_dates
+        close_dict = {
+            s: frames[s]["close"] for s in self.symbols if "close" in frames[s].columns
+        }
+        vol_dict = {
+            s: frames[s]["volume"]
+            for s in self.symbols
+            if "volume" in frames[s].columns
+        }
 
-        # construct close prices df and returns df
-        close_dict = {}
-        for s in self.symbols:
-            if "close" in frames[s].columns:
-                close_dict[s] = frames[s]["close"]
-        self.close_df = pd.DataFrame(close_dict, index=self.all_dates)
+        self.close_df = pd.DataFrame(
+            close_dict, index=self.all_dates, columns=self.symbols
+        )
+        self.volume_df = pd.DataFrame(
+            vol_dict, index=self.all_dates, columns=self.symbols
+        )
 
-        # P&L returns: a gap day earns 0, the first day back earns the whole gap
+        # P&L returns: a holiday/gap day earns 0, the first day back earns the gap return
         px = self.close_df.ffill()
         self.returns = px / px.shift(1) - 1.0
-        # estimation returns: NaN on days a symbol has no bar
+
+        # Estimation returns: NaN on days a symbol had no bar (did not trade)
         self.observed_returns = self.returns.where(self.close_df.notna())
 
-        # pre-materialization
-        self.timeline: list[tuple[pd.Timestamp, dict[str, Bar]]] = []
+        # Track each symbol's first and last valid trading index to define active_universe at any t
+        n_days = len(self.all_dates)
+        self.first_valid_idx = np.full(len(self.symbols), n_days, dtype=int)
+        self.last_valid_idx = np.full(len(self.symbols), -1, dtype=int)
 
+        notna_mat = self.close_df.notna().to_numpy()
+        for j in range(len(self.symbols)):
+            valid_rows = np.flatnonzero(notna_mat[:, j])
+            if len(valid_rows) > 0:
+                self.first_valid_idx[j] = int(valid_rows[0])
+                self.last_valid_idx[j] = int(valid_rows[-1])
+
+        # Pre-materialize daily Bar slices
         daily_records: dict[pd.Timestamp, dict[str, Bar]] = {
             t: {} for t in self.all_dates
         }
@@ -73,11 +96,7 @@ class Panel:
             if clean_df.empty:
                 continue
 
-            # month end w.r.t. THIS symbol's own trading calendar, not the panel union
-            sym_period = clean_df.index.to_period("M")
-            is_sym_month_end = ~sym_period.duplicated(keep="last")
-
-            for row, sym_end in zip(clean_df.itertuples(), is_sym_month_end):
+            for row in clean_df.itertuples():
                 t = row.Index
                 if t in daily_records:
                     daily_records[t][s] = Bar(
@@ -88,8 +107,6 @@ class Panel:
                         close=float(getattr(row, "close", np.nan)),
                         volume=float(getattr(row, "volume", 0.0)),
                         open_interest=float(getattr(row, "oi", 0.0)),
-                        is_month_end=bool(sym_end),
-                        is_calendar_month_end=cal_month_end_map[t],
                     )
 
         self.timeline = [(t, daily_records[t]) for t in self.all_dates]
