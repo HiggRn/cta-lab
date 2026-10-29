@@ -148,44 +148,35 @@ class WeeklySchedule(RebalanceSchedule):
 
 
 class FirstAllTradableDayMonthlySchedule(RebalanceSchedule):
-    """After a calendar month rolls over, wait until the first day where all active
-    symbols in the universe are tradable (have a valid Bar today) to rebalance together.
-    Includes a `max_wait_days` safety valve in case a contract has an abnormal data gap.
-    """
-
     def __init__(self, max_wait_days: int = 5):
         self.max_wait_days = max_wait_days
-        self._pending_month: pd.Period | None = None
-        self._last_rebalanced_month: pd.Period | None = None
+        self._pending_ym: tuple[int, int] | None = None
+        self._last_rebalanced_ym: tuple[int, int] | None = None
         self._wait_days: int = 0
 
     def should_rebalance(self, bars: dict[str, Bar], context: HistoryContext) -> bool:
         if not bars:
             return False
 
-        cur_month = context.current_date.to_period("M")
+        t = context.current_date
+        cur_ym = (t.year, t.month)
 
-        # Initialize on the very first bar so we don't immediately fire on day 0
-        if self._last_rebalanced_month is None and context.prev_date is None:
-            self._last_rebalanced_month = cur_month
+        if self._last_rebalanced_ym is None and context.prev_date is None:
+            self._last_rebalanced_ym = cur_ym
             return False
 
-        # Detect rollover into a new calendar month
-        if (
-            cur_month != self._last_rebalanced_month
-            and self._pending_month != cur_month
-        ):
-            self._pending_month = cur_month
+        if cur_ym != self._last_rebalanced_ym and self._pending_ym != cur_ym:
+            self._pending_ym = cur_ym
             self._wait_days = 0
 
-        if self._pending_month == cur_month:
+        if self._pending_ym == cur_ym:
             self._wait_days += 1
             active = context.active_universe
-            all_tradable = bool(active) and active.issubset(bars.keys())
-
-            if all_tradable or self._wait_days >= self.max_wait_days:
-                self._last_rebalanced_month = cur_month
-                self._pending_month = None
+            if (
+                bool(active) and active.issubset(bars.keys())
+            ) or self._wait_days >= self.max_wait_days:
+                self._last_rebalanced_ym = cur_ym
+                self._pending_ym = None
                 return True
 
         return False

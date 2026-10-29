@@ -31,7 +31,7 @@ class MonthlyTsmomAlpha(AlphaModel):
                 self._monthly[symbol] = MonthlyReturn(self._max_lb)
             ind = self._monthly[symbol]
             ind.update(bar)
-            if ind.is_ready:
+            if ind.just_closed_month and ind.is_ready:
                 signals[symbol] = self.direction(list(ind.completed_returns))
         return signals
 
@@ -48,15 +48,16 @@ class StaticLongAlpha(MonthlyTsmomAlpha):
 
 
 def _completed_monthly_returns(daily_returns: pd.DataFrame) -> pd.DataFrame:
-    """Compound daily returns into completed calendar-month returns (excluding the newly started month)."""
+    """Fast compounding of daily returns into completed calendar months using integer year*100+month."""
     if daily_returns.empty:
         return daily_returns
-    months = daily_returns.index.to_period("M")
-    monthly = (1.0 + daily_returns).groupby(months).prod(min_count=1) - 1.0
-    # If today is the first few days of a new month, drop the incomplete current month row
-    if len(monthly) > 1 and daily_returns.index[-1].day <= 7:
-        monthly = monthly.iloc[:-1]
-    return monthly
+    ym = daily_returns.index.year * 100 + daily_returns.index.month
+    # Keep only completed months strictly prior to the current bar's month
+    if daily_returns.index[-1].day <= 7:
+        mask = ym != ym[-1]
+        daily_returns = daily_returns.loc[mask]
+        ym = ym[mask]
+    return (1.0 + daily_returns).groupby(ym).prod(min_count=1) - 1.0
 
 
 class ExpandingMonthlyRiskModel(RiskModel):

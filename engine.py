@@ -168,8 +168,8 @@ def run_backtest(
     t_costs = np.zeros(n_days)
     r_costs = np.zeros(n_days)
     f_costs = np.zeros(n_days)
-    weights_history: dict[pd.Timestamp, dict[str, float]] = {}
-    last_w: dict[str, float] | None = None
+    weights_mat = np.zeros((n_days, n_assets))
+    last_w_vec = np.zeros(n_assets)
 
     for idx, (t, bars) in enumerate(panel.timeline):
         # 1. Promote any order scheduled for today into pending_targets
@@ -212,21 +212,17 @@ def run_backtest(
         # 4. Run strategy logic at today's close; schedule resulting orders for idx + exec_lag
         w = strategy.on_bar(bars, context)
         if w is not None:
-            last_w = w
+            target = np.zeros(n_assets)
+            for s, x in w.items():
+                if s in col and pd.notna(x):
+                    target[col[s]] = float(x)
+            last_w_vec = target
             if idx + exec_lag < n_days:
-                target = np.zeros(n_assets)
-                for s, x in w.items():
-                    if s in col and pd.notna(x):
-                        target[col[s]] = float(x)
                 scheduled_orders[idx + exec_lag] = target
 
-        weights_history[t] = last_w if last_w is not None else {}
+        weights_mat[idx] = last_w_vec
 
-    weights_df = (
-        pd.DataFrame.from_dict(weights_history, orient="index")
-        .reindex(index=panel.all_dates, columns=panel.symbols)
-        .fillna(0.0)
-    )
+    weights_df = pd.DataFrame(weights_mat, index=panel.all_dates, columns=panel.symbols)
     positions_df = pd.DataFrame(positions, index=panel.all_dates, columns=panel.symbols)
     gross_pnl = pd.Series(gross, index=panel.all_dates)
     trading_cost_s = pd.Series(t_costs, index=panel.all_dates)
