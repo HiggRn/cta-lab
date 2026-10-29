@@ -1,30 +1,59 @@
 from collections import deque
 
+import pandas as pd
+
 from common import Bar, Indicator
 
 
 class MonthlyReturn(Indicator):
-    """The last `lookback` month-end to month-end returns of one symbol.
+    """Tracks calendar-month returns in real time without any lookahead flags.
 
-    Months are closed on the symbol's own last bar of the month (`Bar.is_month_end`).
+    - Within the same calendar month, each new bar updates the current month's return in-place.
+    - When a bar from a new calendar month arrives, the previous month's final close is locked
+      as the new baseline and the previous month's return is permanently sealed in `completed_returns`.
     """
 
     def __init__(self, lookback: int = 12):
-        self.returns: deque[float] = deque(maxlen=lookback)
-        self._last_close: float | None = None
+        self.lookback = lookback
+        self.completed_returns: deque[float] = deque(maxlen=lookback)
+        self._current_month: pd.Period | None = None
+        self._prev_month_close: float | None = None
+        self._current_close: float | None = None
+        self._current_month_ret: float | None = None
+
+    @property
+    def returns(self) -> list[float]:
+        """Up to `lookback` monthly returns, including the in-progress current month at the end."""
+        if self._current_month_ret is None:
+            return list(self.completed_returns)
+        combined = list(self.completed_returns) + [self._current_month_ret]
+        return combined[-self.lookback :]
 
     @property
     def is_ready(self) -> bool:
-        return len(self.returns) == self.returns.maxlen
+        """True once we have `lookback` completed months (or `lookback` total months)."""
+        return len(self.completed_returns) == self.lookback
 
     @property
     def value(self) -> float:
-        """Sum of the stored monthly returns."""
-        return sum(self.returns)
+        """Sum of the last `lookback` completed monthly returns."""
+        return float(sum(self.completed_returns))
 
     def update(self, bar: Bar) -> None:
-        if not bar.is_month_end:
+        bar_month = bar.date.to_period("M")
+
+        if self._current_month is None:
+            self._current_month = bar_month
+            self._current_close = bar.close
             return
-        if self._last_close is not None and self._last_close > 0:
-            self.returns.append(bar.close / self._last_close - 1.0)
-        self._last_close = bar.close
+
+        if bar_month != self._current_month:
+            # New calendar month started: seal the previous month's return
+            if self._current_month_ret is not None:
+                self.completed_returns.append(self._current_month_ret)
+            self._prev_month_close = self._current_close
+            self._current_month = bar_month
+
+        self._current_close = bar.close
+        if self._prev_month_close is not None and self._prev_month_close > 0:
+            self._current_month_ret = bar.close / self._prev_month_close - 1.0

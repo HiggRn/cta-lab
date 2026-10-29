@@ -222,3 +222,120 @@ class Strategy(abc.ABC):
         """Called at the close of each trading day.
         Return a dict of new target weights to trigger a rebalance, or None to hold current positions.
         """
+
+
+class ModularStrategy(Strategy):
+    """Composable strategy skeleton combining AlphaModel, RiskModel, PCM, and RebalanceSchedule."""
+
+    def __init__(
+        self,
+        alpha_model: AlphaModel,
+        risk_model: RiskModel,
+        pcm: PortfolioConstructionModel,
+        schedule: RebalanceSchedule | None = None,
+        risk_lookback: int | None = None,
+    ):
+        self.alpha_model = alpha_model
+        self.risk_model = risk_model
+        self.pcm = pcm
+        self.schedule = schedule or FirstAllTradableDayMonthlySchedule()
+        self.risk_lookback = risk_lookback
+        self._signals: dict[str, float] = {}
+
+    def on_bar(
+        self, bars: dict[str, Bar], context: HistoryContext
+    ) -> dict[str, float] | None:
+        if not bars:
+            return None
+
+        self._signals.update(self.alpha_model.update(bars, context))
+
+        if not self.schedule.should_rebalance(bars, context):
+            return None
+
+        cov = self.risk_model.covariance(context.get_returns(self.risk_lookback))
+        return self.pcm.create_targets(self._signals, cov)
+
+
+# Common Models
+
+
+def exante_vol(weights: dict[str, float], cov: pd.DataFrame) -> float:
+    """Annualised ex-ante portfolio volatility sqrt(w' cov w)."""
+    w = pd.Series(weights)
+    q = cov.reindex(index=w.index, columns=w.index).fillna(0.0)
+    return float(np.sqrt(max(w @ q @ w, 0.0)))
+
+
+class SampleCovarianceRiskModel(RiskModel):
+    """Standard rolling/expanding daily sample covariance matrix."""
+
+    def __init__(self, periods_per_year: int = 252, min_periods: int = 20):
+        self.periods_per_year = periods_per_year
+        self.min_periods = min_periods
+
+    def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        return returns.cov(min_periods=self.min_periods) * self.periods_per_year
+
+
+class EqualRiskPCM(PortfolioConstructionModel):
+    """Each active position targets `position_vol`, weighted 1/N across live symbols."""
+
+    def __init__(self, position_vol: float = 0.40, min_assets: int = 10):
+        self.position_vol = position_vol
+        self.min_assets = min_assets
+
+    def create_targets(
+        self, signals: dict[str, float], cov: pd.DataFrame
+    ) -> dict[str, float]:
+        vol = pd.Series(np.sqrt(np.diag(cov)), index=cov.index)
+        live = {
+            s: x
+            for s, x in signals.items()
+            if x != 0.0 and s in vol.index and pd.notna(vol[s]) and vol[s] > 1e-4
+        }
+        if len(live) < self.min_assets:
+            return {}
+        n = len(live)
+        return {s: x * self.position_vol / vol[s] / n for s, x in live.items()}
+
+
+class VolTargetPCM(PortfolioConstructionModel):
+    """Wraps any PCM and scales weights so ex-ante portfolio vol equals `target_vol`."""
+
+    def __init__(self, base_pcm: PortfolioConstructionModel, target_vol: float = 0.11):
+        self.base_pcm = base_pcm
+        self.target_vol = target_vol
+
+    def create_targets(
+        self, signals: dict[str, float], cov: pd.DataFrame
+    ) -> dict[str, float]:
+        targets = self.base_pcm.create_targets(signals, cov)
+        if not targets:
+            return targets
+        vol = exante_vol(targets, cov)
+        if not vol > 0.0:
+            return {}
+        return {s: w * self.target_vol / vol for s, w in targets.items()}
+
+
+class InverseVolPCM(PortfolioConstructionModel):
+    """Sizes positions inversely proportional to volatility, scaled to `target_gross_leverage`."""
+
+    def __init__(self, target_gross_leverage: float = 1.0):
+        self.target_gross_leverage = target_gross_leverage
+
+    def create_targets(
+        self, signals: dict[str, float], cov: pd.DataFrame
+    ) -> dict[str, float]:
+        vol = pd.Series(np.sqrt(np.diag(cov)), index=cov.index)
+        raw = {
+            s: sig / vol[s]
+            for s, sig in signals.items()
+            if sig != 0.0 and s in vol.index and pd.notna(vol[s]) and vol[s] > 1e-4
+        }
+        gross = sum(abs(w) for w in raw.values())
+        if gross == 0.0:
+            return {}
+        scale = self.target_gross_leverage / gross
+        return {s: w * scale for s, w in raw.items()}
