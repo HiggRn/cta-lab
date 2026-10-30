@@ -105,6 +105,7 @@ class BacktestResult:
         trading_costs: pd.Series,
         roll_costs: pd.Series,
         financing_costs: pd.Series,
+        turnover: pd.Series,
     ):
         # weights: target weights decided by the strategy, carried forward
         # positions: actual weights held into each day's return (after execution & drift)
@@ -114,6 +115,8 @@ class BacktestResult:
         self.trading_costs = trading_costs
         self.roll_costs = roll_costs
         self.financing_costs = financing_costs
+        # executed |traded weights| per day (excludes weight drift)
+        self.turnover = turnover
         self.costs = trading_costs + roll_costs + financing_costs
         self.net_pnl = gross_pnl - self.costs
         self.nav = (1.0 + self.net_pnl.fillna(0.0)).cumprod()
@@ -168,6 +171,7 @@ def run_backtest(
     t_costs = np.zeros(n_days)
     r_costs = np.zeros(n_days)
     f_costs = np.zeros(n_days)
+    turnover = np.zeros(n_days)
     weights_mat = np.zeros((n_days, n_assets))
     last_w_vec = np.zeros(n_assets)
 
@@ -194,6 +198,7 @@ def run_backtest(
                 del pending_targets[j]
 
             if np.any(traded_diff != 0.0):
+                turnover[idx] = float(np.abs(traded_diff).sum())
                 t_costs[idx] = cost_model.trading_cost(traded_diff, bars, panel.symbols)
 
         # 2. Settle today's return, holding costs (roll + financing), and weight drift
@@ -228,6 +233,7 @@ def run_backtest(
     trading_cost_s = pd.Series(t_costs, index=panel.all_dates)
     roll_cost_s = pd.Series(r_costs, index=panel.all_dates)
     financing_cost_s = pd.Series(f_costs, index=panel.all_dates)
+    turnover_s = pd.Series(turnover, index=panel.all_dates)
 
     return BacktestResult(
         weights=weights_df,
@@ -236,4 +242,5 @@ def run_backtest(
         trading_costs=trading_cost_s,
         roll_costs=roll_cost_s,
         financing_costs=financing_cost_s,
+        turnover=turnover_s,
     )

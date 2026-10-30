@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pandas as pd
+
 from analysis import (
     alpha_table,
     correlation_structure,
@@ -46,17 +48,21 @@ cost_model = FuturesCostModel(
 # Combine course baselines with user custom strategies
 all_strategies = {**BASELINE_STRATEGIES, **USER_STRATEGIES}
 results = {
-    name: run_backtest(panel=panel, strategy=cls(), cost_model=cost_model, exec_lag=1)
+    name: run_backtest(panel=panel, strategy=cls(), cost_model=cost_model, exec_lag=2)
     for name, cls in all_strategies.items()
 }
-monthly = {
-    name: monthly_returns(res).loc[SAMPLE_START:] for name, res in results.items()
-}
+# Common comparison window: the latest first full month across all strategies
+common_start = max(
+    [pd.Period(SAMPLE_START, "M")]
+    + [monthly_returns(res).index[0] for res in results.values()]
+)
+START = str(common_start)
+monthly = {name: monthly_returns(res).loc[START:] for name, res in results.items()}
 
 # Strategy Performance & Cost Breakdown Table
-print(f"\n== Strategy Comparison (from {SAMPLE_START}) ==")
+print(f"\n== Strategy Comparison (from {START}) ==")
 summary = strategy_summary_table(
-    results, baseline_name=BASELINE_NAME, sample_start=SAMPLE_START
+    results, baseline_name=BASELINE_NAME, sample_start=START
 )
 summary.to_csv(OUTPUT_DIR / "strategy_comparison.csv")
 print(summary.round(3).to_string())
@@ -97,4 +103,4 @@ print(
 )
 
 # Plot Equity & Drawdown Curves
-plot_strategies({k: results[k] for k in selected}, sample_start=SAMPLE_START)
+plot_strategies({k: results[k] for k in selected}, sample_start=START)

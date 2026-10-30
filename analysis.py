@@ -117,9 +117,7 @@ def strategy_summary_table(
         )
         years = max(len(r_net) / 12.0, 1e-6)
 
-        turnover_yr = float(
-            res.positions.loc[start_ts:].diff().abs().sum(axis=1).sum() / years
-        )
+        turnover_yr = float(res.turnover.loc[start_ts:].sum() / years)
         trade_bps_yr = float(res.trading_costs.loc[start_ts:].sum() / years * 1e4)
         roll_bps_yr = float(res.roll_costs.loc[start_ts:].sum() / years * 1e4)
         fin_bps_yr = float(res.financing_costs.loc[start_ts:].sum() / years * 1e4)
@@ -242,17 +240,20 @@ def alpha_table(
 def sg_trend_comparison(
     strategy_ret: pd.Series, sg_excel_path: Path
 ) -> dict[str, float | str]:
-    """Compare strategy excess returns against live CTA index (SG Trend - RF)."""
+    """Regress strategy excess returns on the live CTA index (SG Trend - RF).
+
+    alpha is the strategy's annualized alpha over SG Trend.
+    """
     sg = pd.read_excel(sg_excel_path, index_col=0)
     sg.index = pd.PeriodIndex(sg.index, freq="M")
     sg_excess = (sg["SG Trend"] - sg["RF"]).rename("SG")
 
     both = pd.concat([strategy_ret.rename("Strategy"), sg_excess], axis=1).dropna()
-    fit = ols(both["SG"], both[["Strategy"]])
+    fit = ols(both["Strategy"], both[["SG"]])
     return {
         "period": f"{both.index[0]} to {both.index[-1]}",
         "corr": float(both.corr().iloc[0, 1]),
-        "beta": fit["beta_Strategy"],
+        "beta": fit["beta_SG"],
         "alpha": fit["alpha"],
         "t_alpha": fit["t_alpha"],
         "SR Strategy": monthly_metrics(both["Strategy"])["SR"],
@@ -410,14 +411,19 @@ def risk_model_bias(
         for strat_name, res in results.items():
             vols = {}
             for day, cov in covs.items():
-                w = res.weights.loc[day]
+                # forecast made at the end of month P (cov) for the weights set at
+                # the start of month P+1, which are what earn month P+1's return
+                nxt = day.to_period("M") + 1
+                if nxt not in month_ends.index:
+                    continue
+                w = res.weights.loc[month_ends[nxt]]
                 w = w[w != 0.0]
                 if w.empty:
                     continue
                 q = cov.reindex(index=w.index, columns=w.index).fillna(0.0).to_numpy()
                 if diagonal:
                     q = np.diag(np.diag(q))
-                vols[day.to_period("M") + 1] = np.sqrt(
+                vols[nxt] = np.sqrt(
                     max(float(w.to_numpy() @ q @ w.to_numpy()), 0.0)
                 )
 
