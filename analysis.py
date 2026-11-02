@@ -10,381 +10,470 @@ import statsmodels.api as sm
 from scipy import stats
 
 from engine import BacktestResult
+from panel import Panel
+
+# Strategy Performance Table
 
 
 def first_trade_date(result: BacktestResult) -> pd.Timestamp:
-    return result.positions.abs().sum(axis=1).gt(0).idxmax()
+    active = result.positions.abs().sum(axis=1).gt(0)
+    return active.idxmax() if active.any() else result.positions.index[0]
 
 
-def performance_metrics(
-    result: BacktestResult,
-    periods_per_year: int = 252,
-) -> dict[str, float]:
-    # skip the years before the first trade, otherwise they count as zero-return days
-    returns = result.net_pnl.loc[first_trade_date(result):].dropna()
-
-    annual_return = returns.mean() * periods_per_year
-    annual_volatility = returns.std() * periods_per_year**0.5
-
-    if annual_volatility > 0:
-        sharpe = annual_return / annual_volatility
-    else:
-        sharpe = float("nan")
-
-    nav = (1.0 + returns).cumprod()
-
-    running_max = nav.cummax()
-    drawdown = nav / running_max - 1.0
-    max_drawdown = drawdown.min()
-
-    total_cost = result.costs.sum()
-    final_nav = nav.iloc[-1]
-
-    return {
-        "annual_return": annual_return,
-        "annual_volatility": annual_volatility,
-        "sharpe": sharpe,
-        "max_drawdown": max_drawdown,
-        "final_nav": final_nav,
-        "total_cost": total_cost,
-    }
-
-
-def print_performance_summary(
-    result: BacktestResult,
-    periods_per_year: int = 252,
-) -> None:
-    metrics = performance_metrics(result, periods_per_year)
-
-    print("\nPerformance Summary")
-    print("-------------------")
-    print(f"Annual return:     {metrics['annual_return']:.2%}")
-    print(f"Annual volatility: {metrics['annual_volatility']:.2%}")
-    print(f"Sharpe ratio:      {metrics['sharpe']:.2f}")
-    print(f"Max drawdown:      {metrics['max_drawdown']:.2%}")
-    print(f"Final NAV:         {metrics['final_nav']:.3f}")
-    print(f"Total cost:        {metrics['total_cost']:.4f}")
-
-
-def plot_equity_curve(result: BacktestResult) -> None:
-    nav = result.nav.dropna()
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(nav.index, nav.values)
-    plt.title("TSMOM Equity Curve")
-    plt.xlabel("Date")
-    plt.ylabel("NAV")
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_drawdown(result: BacktestResult) -> None:
-    nav = result.nav.dropna()
-
-    running_max = nav.cummax()
-    drawdown = nav / running_max - 1.0
-
-    plt.figure(figsize=(10, 4))
-    plt.plot(drawdown.index, drawdown.values)
-    plt.title("TSMOM Drawdown")
-    plt.xlabel("Date")
-    plt.ylabel("Drawdown")
-    plt.tight_layout()
-    plt.show()
-
-
-def analyze_backtest(result: BacktestResult) -> dict[str, float]:
-    metrics = performance_metrics(result)
-
-    print_performance_summary(result)
-    plot_equity_curve(result)
-    plot_drawdown(result)
-
-    return metrics
-
-
-# ---- monthly statistics -------------------------------------------------------------
-
-
-def monthly_returns(result: BacktestResult) -> pd.Series:
-    """Net returns compounded to calendar months, from the first full month after the first trade."""
-    pnl = result.net_pnl
-    monthly = (1 + pnl).groupby(pnl.index.to_period("M")).prod() - 1
-    return monthly.loc[monthly.index > first_trade_date(result).to_period("M")]
+def monthly_returns(result: BacktestResult, gross: bool = False) -> pd.Series:
+    """Compound daily net (or gross) returns into calendar months after the first trade."""
+    pnl = result.gross_pnl if gross else result.net_pnl
+    monthly = (1.0 + pnl).groupby(pnl.index.to_period("M")).prod() - 1.0
+    start_period = first_trade_date(result).to_period("M")
+    return monthly.loc[monthly.index > start_period]
 
 
 def max_drawdown(r: pd.Series) -> float:
-    wealth = (1 + r.fillna(0)).cumprod()
-    return float((wealth / wealth.cummax() - 1).min())
+    wealth = (1.0 + r.fillna(0.0)).cumprod()
+    return float((wealth / wealth.cummax() - 1.0).min())
 
 
-def monthly_metrics(r: pd.Series) -> dict:
+def monthly_metrics(r: pd.Series) -> dict[str, float]:
     r = r.dropna()
+    if r.empty or r.std() == 0:
+        return {
+            k: np.nan
+            for k in (
+                "Avg",
+                "Std",
+                "SR",
+                "t(mean)",
+                "Skew",
+                "ExKurt",
+                "MaxDD",
+                "Hit rate",
+            )
+        }
     return {
-        "Avg": r.mean() * 12,
-        "Std": r.std() * np.sqrt(12),
-        "SR": r.mean() / r.std() * np.sqrt(12),
-        "t(mean)": r.mean() / r.std() * np.sqrt(len(r)),
-        "Skew": stats.skew(r),
-        "ExKurt": stats.kurtosis(r),
+        "Avg": float(r.mean() * 12),
+        "Std": float(r.std() * np.sqrt(12)),
+        "SR": float(r.mean() / r.std() * np.sqrt(12)),
+        "t(mean)": float(r.mean() / r.std() * np.sqrt(len(r))),
+        "Skew": float(stats.skew(r)),
+        "ExKurt": float(stats.kurtosis(r)),
         "MaxDD": max_drawdown(r),
-        "Hit rate": (r > 0).mean(),
-        "Start": str(r.index[0]),
-        "Months": len(r),
+        "Hit rate": float((r > 0).mean()),
     }
 
 
-def performance_table(series: dict[str, pd.Series]) -> pd.DataFrame:
-    return pd.DataFrame({name: monthly_metrics(r) for name, r in series.items()}).T
-
-
-def ols(y: pd.Series, X: pd.DataFrame, nw_lags: int = 6, periods: int = 12) -> dict:
-    """OLS with Newey-West t-stats. Alpha is annualised with `periods` per year."""
-    df = pd.concat([y.rename("y"), X], axis=1).dropna()
-    fit = sm.OLS(df["y"], sm.add_constant(df.drop(columns="y"))).fit(
-        cov_type="HAC", cov_kwds={"maxlags": nw_lags}
-    )
-    out = {"alpha": fit.params["const"] * periods, "t_alpha": fit.tvalues["const"]}
-    for name in X.columns:
-        out[f"beta_{name}"] = fit.params[name]
-        out[f"t_{name}"] = fit.tvalues[name]
-    out["R2"] = fit.rsquared
-    out["n"] = int(fit.nobs)
-    return out
-
-
-def sharpe_ci(r: pd.Series, level: float = 0.95) -> tuple[float, float]:
-    """Lo (2002) confidence interval for the annual Sharpe ratio, assuming iid returns."""
-    r = r.dropna()
-    s = r.mean() / r.std()
-    se = np.sqrt((1 + 0.5 * s**2) / len(r))
-    z = stats.norm.ppf(0.5 + level / 2)
-    return (s - z * se) * np.sqrt(12), (s + z * se) * np.sqrt(12)
-
-
-def sharpe_diff_test(a: pd.Series, b: pd.Series) -> dict:
-    """Jobson-Korkie test, with Memmel's correction, that two Sharpe ratios are equal."""
+def sharpe_diff_test(a: pd.Series, b: pd.Series) -> dict[str, float]:
+    """Jobson-Korkie test with Memmel's correction that two Sharpe ratios are equal."""
     df = pd.concat([a, b], axis=1).dropna()
+    if len(df) < 3:
+        return {"dSR": np.nan, "p": np.nan}
     x, y = df.iloc[:, 0], df.iloc[:, 1]
     sa, sb, rho = x.mean() / x.std(), y.mean() / y.std(), x.corr(y)
-    var = (2 - 2 * rho + 0.5 * (sa**2 + sb**2 - 2 * sa * sb * rho**2)) / len(df)
-    if var <= 0:  # identical series
+    var = (2.0 - 2.0 * rho + 0.5 * (sa**2 + sb**2 - 2.0 * sa * sb * rho**2)) / len(df)
+    if var <= 1e-12:
         return {"dSR": 0.0, "p": np.nan}
     z = (sa - sb) / np.sqrt(var)
-    return {"dSR": (sa - sb) * np.sqrt(12), "p": 2 * (1 - stats.norm.cdf(abs(z)))}
+    return {
+        "dSR": float((sa - sb) * np.sqrt(12)),
+        "p": float(2.0 * (1.0 - stats.norm.cdf(abs(z)))),
+    }
 
 
-def deflated_sharpe(r: pd.Series, trial_sharpes: list[float]) -> float:
-    """Probability the true Sharpe is above zero after picking the best of several trials
-    (Bailey and Lopez de Prado, 2014)."""
-    r = r.dropna()
-    n = len(trial_sharpes)
-    s = r.mean() / r.std()
-    sd_trials = np.std(np.array(trial_sharpes) / np.sqrt(12), ddof=1)
-    gamma = 0.5772  # Euler-Mascheroni constant
-    expected_max = sd_trials * ((1 - gamma) * stats.norm.ppf(1 - 1 / n) + gamma * stats.norm.ppf(1 - 1 / (n * np.e)))
-    skew, kurt = stats.skew(r), stats.kurtosis(r) + 3
-    z = (s - expected_max) * np.sqrt(len(r) - 1) / np.sqrt(1 - skew * s + (kurt - 1) / 4 * s**2)
-    return float(stats.norm.cdf(z))
+def strategy_summary_table(
+    results: dict[str, BacktestResult],
+    baseline_name: str,
+    sample_start: str | None = None,
+) -> pd.DataFrame:
+    """Comprehensive comparison table of net/gross performance, turnover, cost drag (bps/yr),
+    and Sharpe difference p-value against `baseline_name`.
+    """
+    net_m = {
+        name: (
+            monthly_returns(r).loc[sample_start:]
+            if sample_start
+            else monthly_returns(r)
+        )
+        for name, r in results.items()
+    }
+    gross_m = {
+        name: (
+            monthly_returns(r, gross=True).loc[sample_start:]
+            if sample_start
+            else monthly_returns(r, gross=True)
+        )
+        for name, r in results.items()
+    }
+
+    rows = {}
+    base_series = net_m[baseline_name]
+
+    for name, res in results.items():
+        r_net = net_m[name]
+        r_gross = gross_m[name]
+        m = monthly_metrics(r_net)
+
+        # Slice daily series to match the monthly evaluation window
+        start_ts = (
+            r_net.index[0].start_time if not r_net.empty else res.net_pnl.index[0]
+        )
+        years = max(len(r_net) / 12.0, 1e-6)
+
+        turnover_yr = float(res.turnover.loc[start_ts:].sum() / years)
+        trade_bps_yr = float(res.trading_costs.loc[start_ts:].sum() / years * 1e4)
+        roll_bps_yr = float(res.roll_costs.loc[start_ts:].sum() / years * 1e4)
+        fin_bps_yr = float(res.financing_costs.loc[start_ts:].sum() / years * 1e4)
+
+        rows[name] = {
+            "Net Avg": m["Avg"],
+            "Net Std": m["Std"],
+            "Net SR": m["SR"],
+            "Gross SR": monthly_metrics(r_gross)["SR"],
+            "MaxDD": m["MaxDD"],
+            "Skew": m["Skew"],
+            "Hit rate": m["Hit rate"],
+            "Turnover/yr": turnover_yr,
+            "TradeCost(bps/yr)": trade_bps_yr,
+            "RollCost(bps/yr)": roll_bps_yr,
+            "FinCost(bps/yr)": fin_bps_yr,
+            "Corr(base)": float(r_net.corr(base_series)),
+            "p(SR=base)": sharpe_diff_test(r_net, base_series)["p"],
+        }
+
+    return pd.DataFrame(rows).T
 
 
-# ---- data: asset classes and autocorrelation --------------------------------------------
-
-
-def asset_class_stats(returns: pd.DataFrame, classes: pd.Series) -> pd.DataFrame:
-    """Two readings of "equally weighted average across instruments":
-    A = average of each symbol's statistics, B = statistics of the equal-weighted class portfolio."""
-    per_symbol = pd.DataFrame({"Avg": returns.mean() * 12, "Std": returns.std() * np.sqrt(12)})
-    per_symbol["SR"] = per_symbol["Avg"] / per_symbol["Std"]
-    a = per_symbol.groupby(classes).mean().add_prefix("A: ")
-    class_returns = returns.T.groupby(classes).mean().T
-    b = pd.DataFrame({"B: Avg": class_returns.mean() * 12, "B: Std": class_returns.std() * np.sqrt(12)})
-    b["B: SR"] = b["B: Avg"] / b["B: Std"]
-    return a.join(b)
-
-
-def autocorrelation_tstats(returns: pd.DataFrame, classes: pd.Series, max_lag: int = 12) -> pd.DataFrame:
-    """Rank autocorrelation of each symbol at lags 1..max_lag, averaged by class.
-    Returns the t-stat of each average: mean / (std / sqrt(n)) across symbols."""
-    rho = pd.DataFrame(
-        {lag: {s: returns[s].corr(returns[s].shift(lag), method="spearman") for s in returns} for lag in range(1, max_lag + 1)}
-    )
-    groups = rho.groupby(classes.reindex(rho.index))
-    tstats = (groups.mean() / (groups.std() / np.sqrt(groups.count()))).T
-    tstats.insert(0, "ALL", rho.mean() / (rho.std() / np.sqrt(len(rho))))
-    tstats.index.name = "lag"
-    return tstats
-
-
-def pooled_predictability(returns: pd.DataFrame, max_lag: int = 36) -> pd.Series:
-    """Moskowitz, Ooi and Pedersen (2012), Figure 1: regress r(t)/vol on r(t-h)/vol over all symbols
-    at once. vol is the expanding std up to t-1; t-stats are clustered by month."""
-    scaled = returns / returns.expanding(min_periods=36).std().shift(1)
-    y = scaled.stack()
-    tstats = {}
-    for h in range(1, max_lag + 1):
-        df = pd.concat([y.rename("y"), scaled.shift(h).stack().rename("x")], axis=1).dropna()
-        month = pd.factorize(df.index.get_level_values(0))[0]
-        fit = sm.OLS(df["y"], sm.add_constant(df["x"])).fit(cov_type="cluster", cov_kwds={"groups": month})
-        tstats[h] = fit.tvalues["x"]
-    return pd.Series(tstats, name="t-stat")
-
-
-# ---- benchmarks -------------------------------------------------------------------------
+# Benchmarks & Factor Alpha Regressions
 
 FRENCH_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-FRENCH_FILES = ["F-F_Research_Data_Factors", "F-F_Momentum_Factor", "F-F_Research_Data_5_Factors_2x3"]
+FRENCH_FILES = [
+    "F-F_Research_Data_Factors",
+    "F-F_Momentum_Factor",
+    "F-F_Research_Data_5_Factors_2x3",
+]
 
 
-def read_french_csv(path: Path) -> pd.DataFrame:
-    """Monthly rows of a Ken French factor file, converted from percent to decimals."""
+def _read_french_csv(path: Path) -> pd.DataFrame:
     lines = path.read_text().splitlines()
     header_row = next(i for i, line in enumerate(lines) if line.startswith(","))
     df = pd.read_csv(path, skiprows=header_row, index_col=0)
     df.index = df.index.astype(str).str.strip()
-    df = df[df.index.str.len() == 6]  # yyyymm rows only, which drops the annual block
+    df = df[df.index.str.len() == 6]
     df.index = pd.PeriodIndex(df.index, freq="M")
     df.columns = df.columns.str.strip()
-    return df.astype(float) / 100
+    return df.astype(float) / 100.0
 
 
 def load_factors(folder: Path) -> pd.DataFrame:
-    """Fama-French factors plus momentum (UMD). Downloaded from the Ken French library the first time."""
+    """Download/load Fama-French 3/5 factors plus Momentum (UMD)."""
     folder.mkdir(parents=True, exist_ok=True)
     for name in FRENCH_FILES:
         if not (folder / f"{name}.csv").exists():
             with urllib.request.urlopen(FRENCH_URL + f"{name}_CSV.zip") as response:
                 zipfile.ZipFile(io.BytesIO(response.read())).extractall(folder)
-    ff3 = read_french_csv(folder / "F-F_Research_Data_Factors.csv")
-    umd = read_french_csv(folder / "F-F_Momentum_Factor.csv").rename(columns={"Mom": "UMD"})
-    ff5 = read_french_csv(folder / "F-F_Research_Data_5_Factors_2x3.csv")[["RMW", "CMA"]]
+    ff3 = _read_french_csv(folder / "F-F_Research_Data_Factors.csv")
+    umd = _read_french_csv(folder / "F-F_Momentum_Factor.csv").rename(
+        columns={"Mom": "UMD"}
+    )
+    ff5 = _read_french_csv(folder / "F-F_Research_Data_5_Factors_2x3.csv")[
+        ["RMW", "CMA"]
+    ]
     return ff3.join(umd).join(ff5)
 
 
-def load_sg_trend(path: Path) -> pd.DataFrame:
-    """Course file with the SG Trend index, RF and other series, monthly."""
-    df = pd.read_excel(path, index_col=0)
-    df.index = pd.PeriodIndex(df.index, freq="M")
-    return df
+def load_benchmarks(
+    panel: Panel,
+    static_ret: pd.Series,
+    factor_dir: Path,
+) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+    """Build standard Lecture 3 benchmark suite and return (benchmarks_dict, factors_df)."""
+    factors = load_factors(factor_dir).reindex(static_ret.index)
+
+    # US 30Y T-Bond futures monthly return for the 60/40 benchmark
+    us_px = panel.close_df["US"].dropna()
+    t_bond = (
+        us_px.groupby(us_px.index.to_period("M"))
+        .last()
+        .pct_change()
+        .reindex(static_ret.index)
+    )
+
+    benchmarks = {
+        "Static benchmark": static_ret.to_frame("Static"),
+        "US equity (Mkt-RF)": factors[["Mkt-RF"]],
+        "60/40 (Mkt-RF / T-bond)": (0.6 * factors["Mkt-RF"] + 0.4 * t_bond).to_frame(
+            "60/40"
+        ),
+        "Carhart 4-factor": factors[["Mkt-RF", "SMB", "HML", "UMD"]],
+        "FF 5-factor + UMD": factors[["Mkt-RF", "SMB", "HML", "RMW", "CMA", "UMD"]],
+    }
+    return benchmarks, factors
 
 
-def alpha_table(strategy: pd.Series, benchmarks: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """One Newey-West regression of the strategy on each benchmark."""
-    return pd.DataFrame({name: ols(strategy, X) for name, X in benchmarks.items()}).T
+def ols(
+    y: pd.Series, X: pd.DataFrame, nw_lags: int = 6, periods: int = 12
+) -> dict[str, float]:
+    """OLS with Newey-West HAC standard errors. Alpha is annualized with `periods` per year."""
+    df = pd.concat([y.rename("y"), X], axis=1).dropna()
+    fit = sm.OLS(df["y"], sm.add_constant(df.drop(columns="y"))).fit(
+        cov_type="HAC", cov_kwds={"maxlags": nw_lags}
+    )
+    out = {
+        "alpha": float(fit.params["const"] * periods),
+        "t_alpha": float(fit.tvalues["const"]),
+    }
+    for name in X.columns:
+        out[f"beta_{name}"] = float(fit.params[name])
+        out[f"t_{name}"] = float(fit.tvalues[name])
+    out["R2"] = float(fit.rsquared)
+    out["n"] = int(fit.nobs)
+    return out
+
+
+def alpha_table(
+    strategy_ret: pd.Series, benchmarks: dict[str, pd.DataFrame]
+) -> pd.DataFrame:
+    """Regress a strategy's monthly return series against each benchmark."""
+    return pd.DataFrame(
+        {name: ols(strategy_ret, X) for name, X in benchmarks.items()}
+    ).T
+
+
+def sg_trend_comparison(
+    strategy_ret: pd.Series, sg_excel_path: Path
+) -> dict[str, float | str]:
+    """Regress strategy excess returns on the live CTA index (SG Trend - RF).
+
+    alpha is the strategy's annualized alpha over SG Trend.
+    """
+    sg = pd.read_excel(sg_excel_path, index_col=0)
+    sg.index = pd.PeriodIndex(sg.index, freq="M")
+    sg_excess = (sg["SG Trend"] - sg["RF"]).rename("SG")
+
+    both = pd.concat([strategy_ret.rename("Strategy"), sg_excess], axis=1).dropna()
+    fit = ols(both["Strategy"], both[["SG"]])
+    return {
+        "period": f"{both.index[0]} to {both.index[-1]}",
+        "corr": float(both.corr().iloc[0, 1]),
+        "beta": fit["beta_SG"],
+        "alpha": fit["alpha"],
+        "t_alpha": fit["t_alpha"],
+        "SR Strategy": monthly_metrics(both["Strategy"])["SR"],
+        "SR SG-RF": monthly_metrics(both["SG"])["SR"],
+    }
+
+
+# Crisis Alpha: Market Regimes & Smile Regression
 
 
 def to_quarterly(r: pd.Series) -> pd.Series:
-    """Sum of monthly returns in each complete calendar quarter."""
+    """Sum of monthly returns in each complete 3-month calendar quarter."""
     r = r.dropna()
     quarters = r.index.asfreq("Q")
     count = r.groupby(quarters).count()
     return r.groupby(quarters).sum()[count == 3]
 
 
-def smile(strategy: pd.Series, market: pd.Series) -> dict:
-    """Quarterly strategy return on the market and the market squared. A positive
-    Mkt^2 beta means the strategy does well in big up and big down markets."""
-    q = pd.DataFrame({"s": to_quarterly(strategy), "m": to_quarterly(market)}).dropna()
-    return ols(q["s"], pd.DataFrame({"Mkt": q["m"], "Mkt2": q["m"] ** 2}), nw_lags=2, periods=4)
+def smile_regression(
+    strategy_ret: pd.Series, market_ret: pd.Series
+) -> dict[str, float]:
+    """Quarterly regression on Mkt and Mkt^2 to test positive tail convexity."""
+    q = pd.DataFrame(
+        {"s": to_quarterly(strategy_ret), "m": to_quarterly(market_ret)}
+    ).dropna()
+    return ols(
+        q["s"], pd.DataFrame({"Mkt": q["m"], "Mkt2": q["m"] ** 2}), nw_lags=2, periods=4
+    )
 
 
-def regime_returns(series: pd.DataFrame, market: pd.Series, q: float = 0.2) -> pd.DataFrame:
-    """Annualised average return in the market's worst 20%, middle 60% and best 20% of months."""
-    m = market.dropna()
+def regime_returns(
+    strategies_monthly: dict[str, pd.Series],
+    market_ret: pd.Series,
+    q: float = 0.2,
+) -> pd.DataFrame:
+    """Annualized average return during Bear (worst 20%), Normal (middle 60%), and Bull (best 20%) equity months."""
+    m = market_ret.dropna()
     regime = pd.Series("Normal", index=m.index)
     regime[m <= m.quantile(q)] = "Bear"
-    regime[m >= m.quantile(1 - q)] = "Bull"
-    return (series.reindex(m.index).groupby(regime).mean() * 12).loc[["Bear", "Normal", "Bull"]]
+    regime[m >= m.quantile(1.0 - q)] = "Bull"
+
+    df = pd.DataFrame(strategies_monthly)
+    df["Mkt-RF"] = m
+    return (df.reindex(m.index).groupby(regime).mean() * 12.0).loc[
+        ["Bear", "Normal", "Bull"]
+    ]
 
 
-def sg_trend_comparison(strategy: pd.Series, sg: pd.DataFrame) -> dict:
-    """Compare with the SG Trend index of live CTAs. SG is net of fees and earns interest on
-    cash, so we compare our excess returns with SG minus RF."""
-    sg_excess = (sg["SG Trend"] - sg["RF"]).rename("SG")
-    both = pd.concat([strategy.rename("TSMOM"), sg_excess], axis=1).dropna()
-    fit = ols(both["SG"], both[["TSMOM"]])
-    return {
-        "period": f"{both.index[0]} to {both.index[-1]}",
-        "corr": both.corr().iloc[0, 1],
-        "beta": fit["beta_TSMOM"],
-        "alpha": fit["alpha"],
-        "t_alpha": fit["t_alpha"],
-        "SR TSMOM": monthly_metrics(both["TSMOM"])["SR"],
-        "SR SG - RF": monthly_metrics(both["SG"])["SR"],
+# Correlation Structure Decomposition
+
+
+def _avg_within_across_corr(
+    ret_df: pd.DataFrame, asset_classes: pd.Series
+) -> dict[str, float]:
+    corr = ret_df.corr(min_periods=12)
+    classes = asset_classes.reindex(corr.index)
+
+    within_vals = []
+    across_vals = []
+    symbols = list(corr.index)
+
+    for i in range(len(symbols)):
+        for j in range(i + 1, len(symbols)):
+            val = corr.iloc[i, j]
+            if pd.isna(val):
+                continue
+            if classes.iloc[i] == classes.iloc[j]:
+                within_vals.append(val)
+            else:
+                across_vals.append(val)
+
+    out = {
+        "Within Asset Class (All)": float(np.mean(within_vals))
+        if within_vals
+        else np.nan,
+        "Across Asset Classes": float(np.mean(across_vals)) if across_vals else np.nan,
     }
+    for cls in sorted(classes.dropna().unique()):
+        cls_syms = [s for s in symbols if classes.get(s) == cls]
+        sub = corr.loc[cls_syms, cls_syms]
+        vals = [
+            sub.iloc[i, j]
+            for i in range(len(cls_syms))
+            for j in range(i + 1, len(cls_syms))
+            if pd.notna(sub.iloc[i, j])
+        ]
+        out[f"Within {cls}"] = float(np.mean(vals)) if vals else np.nan
+    return out
 
 
-# ---- risk model check -------------------------------------------------------------------
-# Each month end a risk model predicts the portfolio's volatility for the next month.
-# We divide the realised next-month return by that prediction. If the model is right these
-# ratios have a std of 1 (the "bias statistic"). Above 1 means risk was under-predicted.
-
-
-def forecast_covariances(daily_returns: pd.DataFrame, dates: pd.DatetimeIndex, model, lookback: int | None = None) -> dict:
-    """The model's covariance on each date, using only returns up to that date."""
-    covs = {}
-    for day in dates:
-        history = daily_returns.loc[:day]
-        if lookback:
-            history = history.iloc[-lookback:]
-        covs[day] = model.covariance(history)
-    return covs
-
-
-def predicted_vols(result: BacktestResult, covs: dict, diagonal: bool = False) -> pd.Series:
-    """Predicted vol of the weights chosen on each date, labelled by the month they are held.
-    diagonal=True ignores correlations, which is what 40% / vol sizing implicitly assumes."""
-    vols = {}
-    for day, cov in covs.items():
-        w = result.weights.loc[day]
-        w = w[w != 0]
-        if w.empty:
-            continue
-        q = cov.reindex(index=w.index, columns=w.index).fillna(0).to_numpy()
-        if diagonal:
-            q = np.diag(np.diag(q))
-        vols[day.to_period("M") + 1] = np.sqrt(max(w.to_numpy() @ q @ w.to_numpy(), 0.0))
-    return pd.Series(vols)
-
-
-def bias_statistic(realised: pd.Series, predicted_vol: pd.Series, window: int = 36) -> dict:
-    """std(realised / predicted) over the full sample, and the share of `window`-month
-    windows that fall inside 1 +/- sqrt(2 / window)."""
-    z = (realised / (predicted_vol / np.sqrt(12))).dropna()
-    rolling = z.rolling(window).std().dropna()
-    band = np.sqrt(2 / window)
-    return {"bias": z.std(), "share in band": ((rolling > 1 - band) & (rolling < 1 + band)).mean()}
-
-
-def risk_model_check(daily_returns: pd.DataFrame, portfolios: dict[str, BacktestResult],
-                     monthly: dict[str, pd.Series], risk_models: dict) -> pd.DataFrame:
-    """Bias statistic of each portfolio under each risk model.
-
-    risk_models maps a name to (model, ignore correlations?, days of history or None for all).
-    monthly holds each portfolio's realised monthly returns.
+def correlation_structure(panel: Panel, result: BacktestResult) -> pd.DataFrame:
+    """Compare average pairwise correlation within and across asset classes for
+    Passive Buy-and-Hold vs. Strategy active position returns (Lecture 3).
     """
-    weights = next(iter(portfolios.values())).weights
-    month_ends = weights.index.to_series().groupby(weights.index.to_period("M")).max()
-    first_decision = weights.abs().sum(axis=1).gt(0).idxmax()
-    month_ends = pd.DatetimeIndex(month_ends[month_ends >= first_decision])
+    classes = panel.asset_map["AssetClass"]
+
+    # Monthly passive asset returns vs strategy component returns
+    passive_daily = panel.observed_returns
+    strat_comp_daily = np.sign(result.positions).replace(0.0, np.nan) * passive_daily
+
+    passive_m = (1.0 + passive_daily).groupby(passive_daily.index.to_period("M")).prod(
+        min_count=1
+    ) - 1.0
+    strat_m = (1.0 + strat_comp_daily).groupby(
+        strat_comp_daily.index.to_period("M")
+    ).prod(min_count=1) - 1.0
+
+    return pd.DataFrame(
+        {
+            "Passive Buy & Hold": _avg_within_across_corr(passive_m, classes),
+            "Strategy Positions": _avg_within_across_corr(strat_m, classes),
+        }
+    ).T
+
+
+# Risk Model Bias Check
+
+
+def risk_model_bias(
+    daily_returns: pd.DataFrame,
+    results: dict[str, BacktestResult],
+    risk_models: dict[str, tuple[object, bool, int | None]],
+    sample_start: str | None = None,
+    window: int = 36,
+) -> pd.DataFrame:
+    """Evaluate ex-ante vs. realized volatility bias statistic: std(realized / predicted).
+    A bias of 1.0 means accurate risk forecasts; >1.0 means risk was under-predicted.
+    """
+    monthly = {
+        name: (
+            monthly_returns(r).loc[sample_start:]
+            if sample_start
+            else monthly_returns(r)
+        )
+        for name, r in results.items()
+    }
+    ref_weights = next(iter(results.values())).weights
+    month_ends = (
+        ref_weights.index.to_series().groupby(ref_weights.index.to_period("M")).max()
+    )
+    first_dt = first_trade_date(next(iter(results.values())))
+    eval_dates = pd.DatetimeIndex(month_ends[month_ends >= first_dt])
+
     rows = []
-    for name, (model, diagonal, lookback) in risk_models.items():
-        covs = forecast_covariances(daily_returns, month_ends, model, lookback)
-        for portfolio, result in portfolios.items():
-            check = bias_statistic(monthly[portfolio], predicted_vols(result, covs, diagonal))
-            rows.append({"Risk model": name, "Portfolio": portfolio, **check})
-    return pd.DataFrame(rows).set_index(["Portfolio", "Risk model"])
+    band = np.sqrt(2.0 / window)
+
+    for rm_name, (model, diagonal, lookback) in risk_models.items():
+        covs = {}
+        for day in eval_dates:
+            hist = daily_returns.loc[:day]
+            if lookback:
+                hist = hist.iloc[-lookback:]
+            covs[day] = model.covariance(hist)
+
+        for strat_name, res in results.items():
+            vols = {}
+            for day, cov in covs.items():
+                # forecast made at the end of month P (cov) for the weights set at
+                # the start of month P+1, which are what earn month P+1's return
+                nxt = day.to_period("M") + 1
+                if nxt not in month_ends.index:
+                    continue
+                w = res.weights.loc[month_ends[nxt]]
+                w = w[w != 0.0]
+                if w.empty:
+                    continue
+                q = cov.reindex(index=w.index, columns=w.index).fillna(0.0).to_numpy()
+                if diagonal:
+                    q = np.diag(np.diag(q))
+                vols[nxt] = np.sqrt(
+                    max(float(w.to_numpy() @ q @ w.to_numpy()), 0.0)
+                )
+
+            pred_vol = pd.Series(vols)
+            z = (monthly[strat_name] / (pred_vol / np.sqrt(12.0))).dropna()
+            rolling = z.rolling(window).std().dropna()
+            rows.append(
+                {
+                    "Strategy": strat_name,
+                    "Risk model": rm_name,
+                    "Bias stat": float(z.std()),
+                    "Share in band": float(
+                        ((rolling > 1.0 - band) & (rolling < 1.0 + band)).mean()
+                    ),
+                }
+            )
+
+    return pd.DataFrame(rows).set_index(["Strategy", "Risk model"])
 
 
-# ---- lookbacks --------------------------------------------------------------------------
+def plot_strategies(
+    results: dict[str, BacktestResult],
+    sample_start: str | None = None,
+) -> None:
+    """Plot cumulative log-wealth and underwater drawdown curves for compared strategies."""
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
 
+    for name, res in results.items():
+        pnl = (
+            res.net_pnl.loc[sample_start:]
+            if sample_start
+            else res.net_pnl.loc[first_trade_date(res) :]
+        )
+        pnl = pnl.fillna(0.0)
+        nav = (1.0 + pnl).cumprod()
+        dd = nav / nav.cummax() - 1.0
 
-def sharpe_by_period(returns: dict, periods: list[tuple[str, str]]) -> pd.DataFrame:
-    """Sharpe ratio of each series over the full sample and each (start, end) sub-period."""
-    rows = {}
-    for name, r in returns.items():
-        rows[name] = {"Full": monthly_metrics(r)["SR"]}
-        for start, end in periods:
-            rows[name][f"{start}-{end}"] = monthly_metrics(r.loc[start:end])["SR"]
-    return pd.DataFrame(rows).T
+        ax1.plot(nav.index, nav.values, label=name)
+        ax2.plot(dd.index, dd.values, label=name)
 
+    ax1.set_yscale("log")
+    ax1.set_title("Cumulative Net Wealth (Log Scale)")
+    ax1.set_ylabel("NAV")
+    ax1.legend(loc="upper left")
+    ax1.grid(True, alpha=0.3)
+
+    ax2.set_title("Drawdown")
+    ax2.set_ylabel("Drawdown")
+    ax2.set_xlabel("Date")
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
