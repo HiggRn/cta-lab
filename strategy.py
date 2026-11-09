@@ -12,7 +12,7 @@ from common import (
     SampleCovarianceRiskModel,
     Strategy,
 )
-from indicators.momentum import Momentum
+from indicators import Momentum
 
 
 class DailyTsmomAlpha(AlphaModel):

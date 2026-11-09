@@ -11,7 +11,7 @@ from common import (
     RiskModel,
     VolTargetPCM,
 )
-from indicators.monthly_returns import MonthlyReturn
+from indicators import MonthlyReturn
 
 # Baseline Components
 
