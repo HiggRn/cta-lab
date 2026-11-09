@@ -82,24 +82,17 @@ def strategy_summary_table(
     results: dict[str, BacktestResult],
     baseline_name: str,
     sample_start: str | None = None,
+    sample_end: str | None = None,
 ) -> pd.DataFrame:
     """Comprehensive comparison table of net/gross performance, turnover, cost drag (bps/yr),
-    and Sharpe difference p-value against `baseline_name`.
+    and Sharpe difference p-value against `baseline_name`, over months sample_start..sample_end.
     """
     net_m = {
-        name: (
-            monthly_returns(r).loc[sample_start:]
-            if sample_start
-            else monthly_returns(r)
-        )
+        name: monthly_returns(r).loc[sample_start:sample_end]
         for name, r in results.items()
     }
     gross_m = {
-        name: (
-            monthly_returns(r, gross=True).loc[sample_start:]
-            if sample_start
-            else monthly_returns(r, gross=True)
-        )
+        name: monthly_returns(r, gross=True).loc[sample_start:sample_end]
         for name, r in results.items()
     }
 
@@ -115,12 +108,16 @@ def strategy_summary_table(
         start_ts = (
             r_net.index[0].start_time if not r_net.empty else res.net_pnl.index[0]
         )
+        end_ts = r_net.index[-1].end_time if not r_net.empty else None
         years = max(len(r_net) / 12.0, 1e-6)
 
-        turnover_yr = float(res.turnover.loc[start_ts:].sum() / years)
-        trade_bps_yr = float(res.trading_costs.loc[start_ts:].sum() / years * 1e4)
-        roll_bps_yr = float(res.roll_costs.loc[start_ts:].sum() / years * 1e4)
-        fin_bps_yr = float(res.financing_costs.loc[start_ts:].sum() / years * 1e4)
+        def per_year(daily: pd.Series) -> float:
+            return float(daily.loc[start_ts:end_ts].sum() / years)
+
+        turnover_yr = per_year(res.turnover)
+        trade_bps_yr = per_year(res.trading_costs) * 1e4
+        roll_bps_yr = per_year(res.roll_costs) * 1e4
+        fin_bps_yr = per_year(res.financing_costs) * 1e4
 
         rows[name] = {
             "Net Avg": m["Avg"],
@@ -344,15 +341,19 @@ def _avg_within_across_corr(
     return out
 
 
-def correlation_structure(panel: Panel, result: BacktestResult) -> pd.DataFrame:
+def correlation_structure(
+    panel: Panel, result: BacktestResult, end: str | None = None
+) -> pd.DataFrame:
     """Compare average pairwise correlation within and across asset classes for
-    Passive Buy-and-Hold vs. Strategy active position returns (Lecture 3).
+    Passive Buy-and-Hold vs. Strategy active position returns (Lecture 3), using data up to `end`.
     """
     classes = panel.asset_map["AssetClass"]
 
     # Monthly passive asset returns vs strategy component returns
-    passive_daily = panel.observed_returns
-    strat_comp_daily = np.sign(result.positions).replace(0.0, np.nan) * passive_daily
+    passive_daily = panel.observed_returns.loc[:end]
+    strat_comp_daily = (
+        np.sign(result.positions.loc[:end]).replace(0.0, np.nan) * passive_daily
+    )
 
     passive_m = (1.0 + passive_daily).groupby(passive_daily.index.to_period("M")).prod(
         min_count=1
