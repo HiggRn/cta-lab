@@ -76,7 +76,7 @@ def main() -> None:
     print(summary.round(3).to_string())
 
     # Factor & Benchmark Alpha Attribution
-    target_name = BASELINE_NAME
+    target_name = "Daily 252d TSMOM, YZ + corr adjusted"
     target_ret = monthly[target_name]
     benchmarks, factors = load_benchmarks(panel, monthly[STATIC_NAME], FACTOR_DIR)
 
