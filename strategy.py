@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from common import (
     AlphaModel,
@@ -7,12 +8,11 @@ from common import (
     HistoryContext,
     InverseVolPCM,
     ModularStrategy,
+    PortfolioConstructionModel,
     SampleCovarianceRiskModel,
     Strategy,
 )
 from indicators.momentum import Momentum
-
-# Example Strategy: Daily 252d TSMOM
 
 
 class DailyTsmomAlpha(AlphaModel):
@@ -34,6 +34,39 @@ class DailyTsmomAlpha(AlphaModel):
         return signals
 
 
+class CorrelationAdjustedPCM(PortfolioConstructionModel):
+    """Continuous correlation-crowding adjusted inverse-vol sizing: w_i ~ s_i / (vol_i * sum_j max(corr_ij, 0))."""
+
+    def __init__(self, target_gross_leverage: float = 1.0):
+        self.target_gross_leverage = target_gross_leverage
+
+    def create_targets(
+        self, signals: dict[str, float], cov: pd.DataFrame
+    ) -> dict[str, float]:
+        vol = pd.Series(np.sqrt(np.maximum(np.diag(cov), 0.0)), index=cov.index)
+        live = [
+            s
+            for s, sig in signals.items()
+            if sig != 0.0 and s in vol.index and pd.notna(vol[s]) and vol[s] > 1e-4
+        ]
+        if not live:
+            return {}
+
+        sub_cov = np.nan_to_num(cov.loc[live, live].to_numpy(dtype=float), nan=0.0)
+        std = np.sqrt(np.diag(sub_cov))
+        s_vec = np.array([signals[s] for s in live], dtype=float)
+
+        corr = np.clip(sub_cov / np.outer(std, std), -1.0, 1.0)
+        np.fill_diagonal(corr, 1.0)
+
+        # Continuous crowding factor: effective number of positively correlated peers
+        crowding = np.sum(np.maximum(corr, 0.0), axis=1)
+        raw = s_vec / (std * crowding)
+
+        scale = self.target_gross_leverage / float(np.sum(np.abs(raw)))
+        return {live[i]: float(raw[i] * scale) for i in range(len(live))}
+
+
 class DailyTsmomStrategy(ModularStrategy):
     """Daily rebalanced 252d TSMOM with 60-day sample covariance and inverse-vol sizing."""
 
@@ -47,7 +80,21 @@ class DailyTsmomStrategy(ModularStrategy):
         )
 
 
+class DailyTsmomCorrAdjustedStrategy(ModularStrategy):
+    """Daily rebalanced 252d TSMOM with continuous correlation-crowding adjusted sizing."""
+
+    def __init__(self, lookback: int = 252, risk_lookback: int = 60):
+        super().__init__(
+            alpha_model=DailyTsmomAlpha(lookback=lookback),
+            risk_model=SampleCovarianceRiskModel(periods_per_year=252, min_periods=20),
+            pcm=CorrelationAdjustedPCM(target_gross_leverage=1.0),
+            schedule=DailySchedule(),
+            risk_lookback=risk_lookback,
+        )
+
+
 # Registry of user strategies to be evaluated in main.py
 USER_STRATEGIES: dict[str, type[Strategy]] = {
     "Daily 252d TSMOM, inverse vol": DailyTsmomStrategy,
+    "Daily 252d TSMOM, corr adjusted": DailyTsmomCorrAdjustedStrategy,
 }
