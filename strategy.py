@@ -197,8 +197,11 @@ class TradeBufferPCM(PortfolioConstructionModel):
 
 
 class DailyTsmomVolTargetStrategy(ModularStrategy):
-    """The daily 252d TSMOM example, scaled to 11% ex-ante vol, with two cost controls.
+    """The daily 252d TSMOM example with correlation-adjusted sizing, scaled to 11%
+    ex-ante vol, with two cost controls.
 
+    0. Correlation-adjusted sizing instead of plain inverse vol: contracts that move
+       with many others get less weight.
     1. Vol target: the report's main finding is that portfolio-level risk control helps.
        The example runs at about 1x gross and 4% vol; scaling to 11% makes it comparable.
     2. Vol floor: stops leverage piling into near-zero-vol contracts (financing cost).

@@ -5,11 +5,11 @@ Multi-asset CTA trend-following backtest system.
 ## Layout
 
 - `common.py`: core interfaces: `Bar`, `Indicator`, `HistoryContext`, `AlphaModel`, `RiskModel`, `PortfolioConstructionModel` (PCM), `Strategy`
-- `indicators/`: reusable indicators
+- `indicators/`: reusable indicators (`Momentum`, `MonthlyReturn`, `YangZhangVolatility`), imported as `from indicators import ...`
 - `panel.py`: `Panel`, loads raw data + asset map into the daily timeline
 - `engine.py`: `run_backtest()`, runs a `Strategy` over a `Panel`
 - `baselines.py`: the course baselines and benchmarks (`BASELINE_STRATEGIES`) and their models
-- `strategy.py`: the team's strategies (`USER_STRATEGIES`): the daily TSMOM example, asset-class risk parity from the midterm report, the daily TSMOM at 11% vol (our best result after costs), the EWMA vol target with a vol floor, and a 50/50 mix of the two
+- `strategy.py`: the team's strategies (`USER_STRATEGIES`): the daily TSMOM example, the same example with Yang-Zhang risk and correlation-adjusted sizing, asset-class risk parity from the midterm report, the daily TSMOM at 11% vol (our best result after costs), the EWMA vol target with a vol floor, and a 50/50 mix of the two
 - `main.py`: the entry point. Wires data paths, cost model and params, runs every baseline and user strategy and calls the analysis
 - `oos/`: out-of-sample code, parked for now (see `oos/README.md`). Not used by `main.py` or the tests in `tests/`
 - `analysis.py`: performance statistics, regressions, benchmark and SG Trend comparison, risk model check, lookback study, asset-class and autocorrelation statistics
@@ -65,8 +65,10 @@ Current models (`common.py` unless noted):
 | Risk | `ExpandingMonthlyRiskModel` (baselines) | covariance of all past monthly returns, at least 36 months. Use `risk_lookback=None` |
 | Risk | `EwmaMonthlyRiskModel` (baselines) | EWMA covariance of monthly returns (12-month half-life), reacts faster |
 | Risk | `VolFloorRiskModel` (strategy) | wraps a risk model and raises any vol below 3%/yr to 3%, keeping correlations |
+| Risk | `YangZhangRiskModel` (strategy) | sample correlations of the last `risk_lookback` daily returns, with each vol replaced by its Yang-Zhang estimate (open, high, low, close). Needs `update(bars)` on every bar |
 | Risk | `EwmaDailyRiskModel` (baselines) | Moskowitz, Ooi and Pedersen (2012): EWMA of daily returns, centre of mass 60 days, diagonal |
 | PCM | `InverseVolPCM` | weight = signal / vol, scaled so gross exposure equals `target_gross_leverage` |
+| PCM | `CorrelationAdjustedPCM` (strategy) | weight = signal / (vol x sum of the symbol's positive correlations, itself included), scaled to `target_gross_leverage`. Contracts that move with many others get less |
 | PCM | `EqualRiskPCM` | signal x 40% / vol, then 1/N; flat until 10 symbols are live |
 | PCM | `VolTargetPCM` | wraps another PCM and scales its weights so sqrt(w' cov w) equals `target_vol` |
 | PCM | `TradeBufferPCM` (strategy) | wraps a PCM: no-trade band of +-20% of each target; trades only to the band's edge |
@@ -88,18 +90,20 @@ Sharpe ratios of monthly returns, before (gross) and after (net) costs, Jun-1976
 | Blend + EWMA vol target | 1.07 | 0.88 | -24% | 0.43 | 217 | 145 |
 | Daily EWMA sizing (MOP 2012) | 1.18 | 0.93 | -23% | 0.50 | 307 | 244 |
 | Daily 252d TSMOM, inverse vol | 1.10 | 1.03 | -7% | 0.51 | 27 | 0 |
+| Daily 252d TSMOM, YZ + corr adjusted | 1.26 | 1.17 | -7% | 0.58 | 33 | 0 |
 | Asset-class risk parity (EWMA) | 1.07 | 0.83 | -18% | 0.53 | 282 | 213 |
-| **Daily TSMOM 11% vol (floor, buffer)** | **1.38** | **1.20** | **-17%** | **0.85** | **229** | **137** |
+| **Daily TSMOM 11% vol (floor, buffer)** | **1.49** | **1.30** | **-18%** | **0.85** | **241** | **143** |
 | EWMA vol target + floor | 1.14 | 1.01 | -16% | 0.69 | 143 | 108 |
-| Mix 50/50: EWMA + floor and daily 11% vol | 1.32 | 1.16 | -15% | 0.83 | 178 | 113 |
+| Mix 50/50: EWMA + floor and daily 11% vol | 1.42 | 1.25 | -14% | 0.97 | 185 | 116 |
 
-- The strategies are the ones discussed in the midterm report (`Summary_Report_Team_1.pdf`, Section 10), the daily TSMOM example, and three extensions that do best after costs, each with one simple reason. The report's continuous signal was dropped there and is not included.
-- **Daily TSMOM 11% vol (floor, buffer)** is the best result after costs: net Sharpe 1.20 against 0.95 for the best course baseline ("Vol target 11%, EWMA risk", p = 0.006). It is the daily example scaled to 11% ex-ante vol, with a 3% vol floor (stops leverage piling into near-zero-vol contracts) and a 20% trade buffer (roughly halves daily turnover). Both parameters were fixed before testing.
-  - It is the best strategy after costs in every sub-period: net Sharpe 1.45 (1976-89), 1.13 (1990-99), 1.12 (2000-07) and 0.86 (2008-14), where the baseline drops to 0.20.
-  - With every cost doubled it still has a net Sharpe of 1.01, against 0.74 for the best course baseline.
-  - Each layer earns its place: without the floor, net Sharpe is 1.03 (with the buffer only); without the buffer, 1.17 at 1.3x the costs. Leverage caps added nothing on top and were dropped.
+- The strategies are the ones discussed in the midterm report (`Summary_Report_Team_1.pdf`, Section 10), the daily TSMOM example with and without correlation-adjusted sizing, and three extensions that do best after costs, each with one simple reason. The report's continuous signal was dropped there and is not included.
+- **Daily 252d TSMOM, YZ + corr adjusted** is the daily example with two changes: volatility comes from the Yang-Zhang estimator, and sizing is `CorrelationAdjustedPCM` instead of plain inverse vol, so a contract that is highly correlated with many others gets a smaller weight. Net Sharpe rises from 1.03 to 1.17 (p = 0.02) at slightly higher turnover (18 against 14 a year). It runs at about 1x gross and 3.4% vol. `main.py` reports the alpha attribution, market smile, correlation structure and SG Trend comparison for this strategy.
+- **Daily TSMOM 11% vol (floor, buffer)** is the best result after costs: net Sharpe 1.30 against 0.95 for the best course baseline ("Vol target 11%, EWMA risk", p = 0.002). It is the daily example sized with `CorrelationAdjustedPCM` (inverse vol before; net Sharpe was 1.20) and scaled to 11% ex-ante vol, with a 3% vol floor (stops leverage piling into near-zero-vol contracts) and a 20% trade buffer (roughly halves daily turnover). Both parameters were fixed before testing.
+  - Net Sharpe by sub-period: 1.55 (1976-89), 1.23 (1990-99), 1.19 (2000-07) and 0.99 (2008-14), where the baseline drops to 0.20. It is the best strategy in the first and last periods and within 0.03 of the best (the 50/50 mix) in the other two.
+  - With every cost doubled it still has a net Sharpe of 1.10, against 0.74 for the best course baseline.
+  - Each layer earns its place: without the floor, net Sharpe is 1.09 (with the buffer only); without the buffer, 1.26 at 1.3x the costs. Leverage caps added nothing on top and were dropped.
 - **EWMA vol target + floor** is the report's best risk model (EWMA covariance) with the same 3% vol floor. The floor cuts its costs from 229 to 143 bps/yr and lifts net Sharpe from 0.95 to 1.01 (p < 0.001), and from 0.74 to 0.88 with costs doubled.
-- **Mix 50/50** holds half of each: monthly and daily trend, rebalanced at different speeds, much as CTAs blend horizons (report Section 6). Net Sharpe is 1.16 with the smallest drawdown of the three (-15%). The two sleeves correlate 0.86, so the gain over the daily strategy alone is in drawdown and in relying less on daily trading (turnover 30 against 46 a year), not in Sharpe.
+- **Mix 50/50** holds half of each: monthly and daily trend, rebalanced at different speeds, much as CTAs blend horizons (report Section 6). Net Sharpe is 1.25 with the smallest drawdown of the three (-14%) and the highest Calmar (0.97). The two sleeves correlate 0.78, so the gain over the daily strategy alone is in drawdown and in relying less on daily trading (turnover 32 against 50 a year), not in Sharpe.
 - Variants tested and left out: HRP (complex, skew down to -2.4), risk caps (+0.02 at most), leverage caps (nothing on top of the floor) and the continuous signal (lower Sharpe).
 - Financing (50 bps/yr on gross leverage above 1x) is 60-80% of costs for every leveraged strategy, so the gap between gross and net Sharpe mostly tracks gross leverage.
 - Asset-class risk parity gives fixed income a full quarter of the risk. Bonds have low volatility, so that needs a lot of notional, and its costs are the second highest (282 bps/yr). Net of costs it trails plain EWMA vol targeting (0.83 against 0.95).
