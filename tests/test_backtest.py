@@ -71,10 +71,10 @@ def test_later_exec_lag_does_not_help_a_daily_strategy(panel):
     assert sharpe(monthly_returns(second)) <= sharpe(monthly_returns(first)) + 0.05
 
 
-@pytest.mark.parametrize("name", ["Vol target 11%", "Daily 252d TSMOM, inverse vol"])
+@pytest.mark.parametrize("name", ["Vol target 11%", *USER_STRATEGIES])
 def test_no_lookahead(panel, tmp_path, name):
-    # cut every file at a month end: nothing decided up to that day may change
-    cutoff = pd.Timestamp("1999-12-31")
+    # cut every file mid-month: nothing decided up to that day may change
+    cutoff = pd.Timestamp("1999-12-15")
     for file in RAW_DIR.glob("*.csv"):
         prices = pd.read_csv(file, index_col=0, parse_dates=True).loc[:cutoff]
         if len(

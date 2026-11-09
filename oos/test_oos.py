@@ -9,7 +9,7 @@ import pytest
 from analysis import monthly_returns
 from baselines import BASELINE_STRATEGIES
 from engine import FuturesCostModel, run_backtest
-from oos import check_splice
+from oos.splice import check_splice
 from panel import Panel
 from strategy import USER_STRATEGIES
 

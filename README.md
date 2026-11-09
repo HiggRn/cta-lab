@@ -9,9 +9,9 @@ Multi-asset CTA trend-following backtest system.
 - `panel.py`: `Panel`, loads raw data + asset map into the daily timeline
 - `engine.py`: `run_backtest()`, runs a `Strategy` over a `Panel`
 - `baselines.py`: the course baselines and benchmarks (`BASELINE_STRATEGIES`) and their models
-- `strategy.py`: the team's strategies (`USER_STRATEGIES`) and the enhancement models (vol floor, leverage and risk caps, trade buffer, HRP, continuous signal, strategy mix)
+- `strategy.py`: the team's strategies (`USER_STRATEGIES`): the daily TSMOM example, asset-class risk parity from the midterm report, the daily TSMOM at 11% vol (our best result after costs), the EWMA vol target with a vol floor, and a 50/50 mix of the two
 - `main.py`: the entry point. Wires data paths, cost model and params, runs every baseline and user strategy and calls the analysis
-- `oos.py`: `check_splice()`, checks out-of-sample price files join smoothly onto the in-sample ones
+- `oos/`: out-of-sample code, parked for now (see `oos/README.md`). Not used by `main.py` or the tests in `tests/`
 - `analysis.py`: performance statistics, regressions, benchmark and SG Trend comparison, risk model check, lookback study, asset-class and autocorrelation statistics
 - `tests/`: `uv run pytest`
 - `eda.py`, `benchmark_comparison.py`: legacy scripts, kept for reference
@@ -19,7 +19,7 @@ Multi-asset CTA trend-following backtest system.
 ## Data
 
 - `data/raw/*.csv`: in-sample daily prices, to Dec-2014
-- `data/oos/*.csv`: out-of-sample prices (2015+ rows only, currently a public-data extension to 2024-03, notes in `data/oos_meta/`), same format as `data/raw`. When filled, `main.py` checks each file continues smoothly from its last in-sample close (`oos.check_splice`, saved to `outputs/oos_splice_check.csv`), runs every backtest straight through the join, and adds out-of-sample tables from 2015-01
+- `data/oos/*.csv`: out-of-sample prices (2015+ rows only, a public-data extension to 2024-03, notes in `data/oos_meta/`). Used only by `oos/run_oos.py`
 - `data/processed/AssetMapCsv.csv`
 - `data/processed/MonthlyReturns.csv` (course file, used to check our monthly returns)
 - `data/processed/Lecture3_livedata.xlsx` (course file with the SG Trend index)
@@ -61,55 +61,49 @@ Current models (`common.py` unless noted):
 | Alpha | `MonthlyTsmomAlpha` (baselines) | sign of the summed completed monthly returns. Several lookbacks are averaged, e.g. `(1, 3, 6, 12)` |
 | Alpha | `StaticLongAlpha` (baselines) | static benchmark: always long, with the same history requirement as TSMOM |
 | Alpha | `DailyTsmomAlpha` (strategy) | sign of the return over the last 252 daily bars |
-| Alpha | `ContinuousTsmomAlpha` (strategy) | trend strength instead of sign: t-stat of the last 12 monthly returns, capped at +-1 |
 | Risk | `SampleCovarianceRiskModel` | covariance of the last `risk_lookback` daily returns |
 | Risk | `ExpandingMonthlyRiskModel` (baselines) | covariance of all past monthly returns, at least 36 months. Use `risk_lookback=None` |
 | Risk | `EwmaMonthlyRiskModel` (baselines) | EWMA covariance of monthly returns (12-month half-life), reacts faster |
-| Risk | `EwmaDailyRiskModel` (baselines) | Moskowitz, Ooi and Pedersen (2012): EWMA of daily returns, centre of mass 60 days, diagonal |
 | Risk | `VolFloorRiskModel` (strategy) | wraps a risk model and raises any vol below 3%/yr to 3%, keeping correlations |
+| Risk | `EwmaDailyRiskModel` (baselines) | Moskowitz, Ooi and Pedersen (2012): EWMA of daily returns, centre of mass 60 days, diagonal |
 | PCM | `InverseVolPCM` | weight = signal / vol, scaled so gross exposure equals `target_gross_leverage` |
 | PCM | `EqualRiskPCM` | signal x 40% / vol, then 1/N; flat until 10 symbols are live |
 | PCM | `VolTargetPCM` | wraps another PCM and scales its weights so sqrt(w' cov w) equals `target_vol` |
-| PCM | `LeverageCapPCM` (strategy) | wraps a PCM: at most 1x capital per contract, at most 5x gross |
-| PCM | `RiskCapPCM` (strategy) | wraps a PCM: no contract above 10% of portfolio variance (Euler contribution); total vol kept |
-| PCM | `AssetClassBudgetPCM` (strategy) | wraps a PCM: equal stand-alone risk per asset class |
 | PCM | `TradeBufferPCM` (strategy) | wraps a PCM: no-trade band of +-20% of each target; trades only to the band's edge |
-| PCM | `HrpPCM` (strategy) | Hierarchical Risk Parity (Lopez de Prado 2016) on signed positions |
+| PCM | `AssetClassBudgetPCM` (strategy) | wraps a PCM: equal stand-alone risk per asset class (COMM, EQ, FI, FX) |
 | Strategy | `SleeveMixStrategy` (strategy) | runs several strategies side by side and holds a fixed-weight mix of their targets |
 
-The enhancement parameters (3% vol floor, 1x / 5x leverage caps, 10% risk cap, 20% buffer, 50/50 mix) were fixed before testing, not tuned.
 
 ## Results
 
-Sharpe ratios of monthly returns, before (gross) and after (net) costs, with `FuturesCostModel` and `exec_lag=2` as in `main.py`. In-sample is Jun-1976 to Dec-2014; out-of-sample is Jan-2015 to Mar-2024 on the public-data extension in `data/oos`.
+Sharpe ratios of monthly returns, before (gross) and after (net) costs, Jun-1976 to Dec-2014, with `FuturesCostModel` and `exec_lag=2` as in `main.py`. Costs are annual averages.
 
-| Strategy | In-sample gross | In-sample net | Out-of-sample gross | Out-of-sample net |
+| Strategy | Gross SR | Net SR | Costs (bps/yr) | of which financing |
 |---|---|---|---|---|
-| TSMOM 12m (baseline) | 0.92 | 0.78 | 0.24 | 0.02 |
-| Static benchmark | 0.47 | 0.37 | 0.30 | 0.15 |
-| Vol target 11% | 1.02 | 0.87 | 0.25 | 0.01 |
-| Vol target 11%, EWMA risk | 1.15 | 0.95 | 0.45 | -0.03 |
-| Blend 1/3/6/12m | 0.81 | 0.69 | -0.09 | -0.30 |
-| Blend + EWMA vol target | 1.07 | 0.88 | 0.16 | -0.36 |
-| Daily EWMA sizing (MOP 2012) | 1.18 | 0.93 | 0.46 | -0.17 |
-| Daily 252d TSMOM, inverse vol | 1.10 | 1.03 | 0.41 | 0.24 |
-| TSMOM + vol floor & caps | 0.91 | 0.80 | 0.20 | 0.04 |
-| TSMOM + trade buffer | 0.88 | 0.76 | 0.24 | 0.03 |
-| EWMA vol target + floor & caps | 1.13 | 1.00 | 0.34 | 0.16 |
-| EWMA F&C + risk caps | 1.15 | 1.02 | 0.34 | 0.16 |
-| EWMA F&C + risk caps + class budgets | 1.08 | 0.93 | 0.35 | 0.14 |
-| EWMA F&C + continuous signal + buffer | 1.06 | 0.96 | 0.36 | 0.22 |
-| HRP TSMOM (floor, caps, 11% vol) | 1.04 | 0.85 | 0.48 | 0.17 |
-| HRP TSMOM + trade buffer | 0.98 | 0.80 | 0.47 | 0.19 |
-| HRP + buffer + risk caps | 1.23 | 1.04 | 0.49 | 0.24 |
-| Daily TSMOM 11% vol (floor, caps, buffer) | 1.36 | 1.18 | 0.51 | 0.28 |
-| **Mix: EWMA F&C + daily TSMOM 50/50** | **1.30** | **1.15** | **0.43** | **0.24** |
+| TSMOM 12m (baseline) | 0.92 | 0.78 | 148 | 115 |
+| Static benchmark | 0.46 | 0.37 | 138 | 115 |
+| Vol target 11% | 1.02 | 0.87 | 170 | 130 |
+| Vol target 11%, EWMA risk | 1.15 | 0.95 | 229 | 179 |
+| Blend 1/3/6/12m | 0.81 | 0.69 | 129 | 82 |
+| Blend + EWMA vol target | 1.07 | 0.88 | 217 | 145 |
+| Daily EWMA sizing (MOP 2012) | 1.18 | 0.93 | 307 | 244 |
+| Daily 252d TSMOM, inverse vol | 1.10 | 1.03 | 27 | 0 |
+| Asset-class risk parity (EWMA) | 1.07 | 0.83 | 282 | 213 |
+| **Daily TSMOM 11% vol (floor, buffer)** | **1.38** | **1.20** | **229** | **137** |
+| EWMA vol target + floor | 1.14 | 1.01 | 143 | 108 |
+| Mix 50/50: EWMA + floor and daily 11% vol | 1.32 | 1.16 | 178 | 113 |
 
-- The 50/50 mix of monthly and daily trend is the best-supported improvement: in-sample net Sharpe 1.15 against 1.00 for "EWMA vol target + floor & caps" (p = 0.002), with the smallest drawdown (-15%).
-- The vol floor and leverage caps matter most for strategies that lever up quiet contracts: they cut costs on the EWMA strategy from 229 to 142 bps/yr. The risk cap fixes HRP's concentration (worst month -30% to -10.5%).
-- Asset-class budgets did not help. The continuous signal has the lowest costs (100 bps/yr) but a lower gross Sharpe.
+- The strategies are the ones discussed in the midterm report (`Summary_Report_Team_1.pdf`, Section 10), the daily TSMOM example, and three extensions that do best after costs, each with one simple reason. The report's continuous signal was dropped there and is not included.
+- **Daily TSMOM 11% vol (floor, buffer)** is the best result after costs: net Sharpe 1.20 against 0.95 for the best course baseline ("Vol target 11%, EWMA risk", p = 0.006). It is the daily example scaled to 11% ex-ante vol, with a 3% vol floor (stops leverage piling into near-zero-vol contracts) and a 20% trade buffer (roughly halves daily turnover). Both parameters were fixed before testing.
+  - It is the best strategy after costs in every sub-period: net Sharpe 1.45 (1976-89), 1.13 (1990-99), 1.12 (2000-07) and 0.86 (2008-14), where the baseline drops to 0.20.
+  - With every cost doubled it still has a net Sharpe of 1.01, against 0.74 for the best course baseline.
+  - Each layer earns its place: without the floor, net Sharpe is 1.03 (with the buffer only); without the buffer, 1.17 at 1.3x the costs. Leverage caps added nothing on top and were dropped.
+- **EWMA vol target + floor** is the report's best risk model (EWMA covariance) with the same 3% vol floor. The floor cuts its costs from 229 to 143 bps/yr and lifts net Sharpe from 0.95 to 1.01 (p < 0.001), and from 0.74 to 0.88 with costs doubled.
+- **Mix 50/50** holds half of each: monthly and daily trend, rebalanced at different speeds, much as CTAs blend horizons (report Section 6). Net Sharpe is 1.16 with the smallest drawdown of the three (-15%). The two sleeves correlate 0.86, so the gain over the daily strategy alone is in drawdown and in relying less on daily trading (turnover 30 against 46 a year), not in Sharpe.
+- Variants tested and left out: HRP (complex, skew down to -2.4), risk caps (+0.02 at most), leverage caps (nothing on top of the floor) and the continuous signal (lower Sharpe).
+- Financing (50 bps/yr on gross leverage above 1x) is 60-80% of costs for every leveraged strategy, so the gap between gross and net Sharpe mostly tracks gross leverage.
+- Asset-class risk parity gives fixed income a full quarter of the risk. Bonds have low volatility, so that needs a lot of notional, and its costs are the second highest (282 bps/yr). Net of costs it trails plain EWMA vol targeting (0.83 against 0.95).
 - Trading one day sooner (`exec_lag=1`) adds only 0.02-0.05 in-sample.
-- Out-of-sample Sharpe ratios have a standard error of about 0.33, so differences between the better strategies there are noise. Trend following was weak for 2015-2024 generally.
 
 ## Writing an alpha
 
@@ -125,7 +119,7 @@ Sharpe ratios of monthly returns, before (gross) and after (net) costs, with `Fu
 Use `FirstAllTradableDayMonthlySchedule`. A month's end is only known once the next month's first bar arrives, so the strategy rebalances on the first day of the new month on which every active symbol has traded (waiting at most 5 days), using completed months only.
 
 - A symbol with no bar on that day still gets a weight, from its last signal.
-- This trades about one day later than the lecture convention (trading at the same month-end close as the signal), which costs the baseline about 0.07 of Sharpe before costs.
+- This trades about one day later than the lecture convention (trading at the same month-end close as the signal). That convention needs to know a day is the month's last before the next day arrives. Waiting costs the baseline about 0.09 of Sharpe before costs (1.01 to 0.92 with `exec_lag=1`), and `exec_lag=2` another 0.02. The midterm report's 0.99 uses the lecture convention.
 
 ## Daily strategy
 
