@@ -64,11 +64,19 @@ def test_monthly_metrics():
     assert m["SR"] == pytest.approx(0.02 / r.std() * np.sqrt(12))
     assert m["Hit rate"] == 1.0
     assert m["MaxDD"] == pytest.approx(0.0)
+    assert np.isnan(m["Calmar"])  # no drawdown, no ratio
     assert np.isnan(monthly_metrics(pd.Series([0.01] * 5))["SR"])  # zero variance
 
 
 def test_max_drawdown():
     assert max_drawdown(pd.Series([0.1, -0.5, 0.0])) == pytest.approx(-0.5)
+
+
+def test_calmar_is_annual_return_over_max_drawdown():
+    r = pd.Series([0.05, -0.10, 0.02, 0.03] * 6)
+    m = monthly_metrics(r)
+    assert m["Calmar"] == pytest.approx(r.mean() * 12 / -max_drawdown(r))
+    assert m["Calmar"] == pytest.approx(m["Avg"] / abs(m["MaxDD"]))
 
 
 def test_sharpe_diff_test():

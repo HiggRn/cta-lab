@@ -46,9 +46,11 @@ def monthly_metrics(r: pd.Series) -> dict[str, float]:
                 "Skew",
                 "ExKurt",
                 "MaxDD",
+                "Calmar",
                 "Hit rate",
             )
         }
+    mdd = max_drawdown(r)
     return {
         "Avg": float(r.mean() * 12),
         "Std": float(r.std() * np.sqrt(12)),
@@ -56,7 +58,9 @@ def monthly_metrics(r: pd.Series) -> dict[str, float]:
         "t(mean)": float(r.mean() / r.std() * np.sqrt(len(r))),
         "Skew": float(stats.skew(r)),
         "ExKurt": float(stats.kurtosis(r)),
-        "MaxDD": max_drawdown(r),
+        "MaxDD": mdd,
+        # annualised average return over the worst peak-to-trough loss, full sample
+        "Calmar": float(r.mean() * 12 / -mdd) if mdd < 0 else np.nan,
         "Hit rate": float((r > 0).mean()),
     }
 
@@ -125,6 +129,7 @@ def strategy_summary_table(
             "Net SR": m["SR"],
             "Gross SR": monthly_metrics(r_gross)["SR"],
             "MaxDD": m["MaxDD"],
+            "Calmar": m["Calmar"],
             "Skew": m["Skew"],
             "Hit rate": m["Hit rate"],
             "Turnover/yr": turnover_yr,

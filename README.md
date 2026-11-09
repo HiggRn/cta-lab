@@ -76,22 +76,22 @@ Current models (`common.py` unless noted):
 
 ## Results
 
-Sharpe ratios of monthly returns, before (gross) and after (net) costs, Jun-1976 to Dec-2014, with `FuturesCostModel` and `exec_lag=2` as in `main.py`. Costs are annual averages.
+Sharpe ratios of monthly returns, before (gross) and after (net) costs, Jun-1976 to Dec-2014, with `FuturesCostModel` and `exec_lag=2` as in `main.py`. Max drawdown is on compounded net wealth. Calmar is the annualised average net return divided by the absolute max drawdown, over the full sample. Costs are annual averages.
 
-| Strategy | Gross SR | Net SR | Costs (bps/yr) | of which financing |
-|---|---|---|---|---|
-| TSMOM 12m (baseline) | 0.92 | 0.78 | 148 | 115 |
-| Static benchmark | 0.46 | 0.37 | 138 | 115 |
-| Vol target 11% | 1.02 | 0.87 | 170 | 130 |
-| Vol target 11%, EWMA risk | 1.15 | 0.95 | 229 | 179 |
-| Blend 1/3/6/12m | 0.81 | 0.69 | 129 | 82 |
-| Blend + EWMA vol target | 1.07 | 0.88 | 217 | 145 |
-| Daily EWMA sizing (MOP 2012) | 1.18 | 0.93 | 307 | 244 |
-| Daily 252d TSMOM, inverse vol | 1.10 | 1.03 | 27 | 0 |
-| Asset-class risk parity (EWMA) | 1.07 | 0.83 | 282 | 213 |
-| **Daily TSMOM 11% vol (floor, buffer)** | **1.38** | **1.20** | **229** | **137** |
-| EWMA vol target + floor | 1.14 | 1.01 | 143 | 108 |
-| Mix 50/50: EWMA + floor and daily 11% vol | 1.32 | 1.16 | 178 | 113 |
+| Strategy | Gross SR | Net SR | Max DD | Calmar | Costs (bps/yr) | of which financing |
+|---|---|---|---|---|---|---|
+| TSMOM 12m (baseline) | 0.92 | 0.78 | -29% | 0.30 | 148 | 115 |
+| Static benchmark | 0.46 | 0.37 | -69% | 0.08 | 138 | 115 |
+| Vol target 11% | 1.02 | 0.87 | -23% | 0.42 | 170 | 130 |
+| Vol target 11%, EWMA risk | 1.15 | 0.95 | -17% | 0.64 | 229 | 179 |
+| Blend 1/3/6/12m | 0.81 | 0.69 | -31% | 0.25 | 129 | 82 |
+| Blend + EWMA vol target | 1.07 | 0.88 | -24% | 0.43 | 217 | 145 |
+| Daily EWMA sizing (MOP 2012) | 1.18 | 0.93 | -23% | 0.50 | 307 | 244 |
+| Daily 252d TSMOM, inverse vol | 1.10 | 1.03 | -7% | 0.51 | 27 | 0 |
+| Asset-class risk parity (EWMA) | 1.07 | 0.83 | -18% | 0.53 | 282 | 213 |
+| **Daily TSMOM 11% vol (floor, buffer)** | **1.38** | **1.20** | **-17%** | **0.85** | **229** | **137** |
+| EWMA vol target + floor | 1.14 | 1.01 | -16% | 0.69 | 143 | 108 |
+| Mix 50/50: EWMA + floor and daily 11% vol | 1.32 | 1.16 | -15% | 0.83 | 178 | 113 |
 
 - The strategies are the ones discussed in the midterm report (`Summary_Report_Team_1.pdf`, Section 10), the daily TSMOM example, and three extensions that do best after costs, each with one simple reason. The report's continuous signal was dropped there and is not included.
 - **Daily TSMOM 11% vol (floor, buffer)** is the best result after costs: net Sharpe 1.20 against 0.95 for the best course baseline ("Vol target 11%, EWMA risk", p = 0.006). It is the daily example scaled to 11% ex-ante vol, with a 3% vol floor (stops leverage piling into near-zero-vol contracts) and a 20% trade buffer (roughly halves daily turnover). Both parameters were fixed before testing.
