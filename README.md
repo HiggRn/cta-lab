@@ -107,7 +107,27 @@ Sharpe ratios of monthly returns, before (gross) and after (net) costs, Jun-1976
 - Variants tested and left out: HRP (complex, skew down to -2.4), risk caps (+0.02 at most), leverage caps (nothing on top of the floor) and the continuous signal (lower Sharpe).
 - Financing (50 bps/yr on gross leverage above 1x) is 60-80% of costs for every leveraged strategy, so the gap between gross and net Sharpe mostly tracks gross leverage.
 - Asset-class risk parity gives fixed income a full quarter of the risk. Bonds have low volatility, so that needs a lot of notional, and its costs are the second highest (282 bps/yr). Net of costs it trails plain EWMA vol targeting (0.83 against 0.95).
-- Trading one day sooner (`exec_lag=1`) adds only 0.02-0.05 in-sample.
+- Trading one day sooner (`exec_lag=1`) adds only 0.02-0.07 in-sample (0.04-0.07 for the three daily TSMOM strategies).
+
+### Caveats
+
+No look-ahead was found: signals from day `t`'s close trade at day `t+1`'s close, the truncation test (`test_no_lookahead`) passes for every strategy, the price files are ratio-adjusted with complete OHLC, and net Sharpe decays slowly with extra delay (the daily 11% vol strategy: 1.30 at `exec_lag=2`, 1.33 at 5, 1.14 at 10, 0.97 at 21). The numbers above are still in-sample and should be read with three caveats.
+
+1. **Every choice was made on 1976-2014.** A check on the parked 2015-2024 data (`data/oos`, close-only and noisier, without AP, LB and SS, which have no data after 2014; in-sample Sharpes on those 54 contracts differ slightly from the table above):
+
+   | Net SR | 1976-2014 | 2015-2024 |
+   |---|---|---|
+   | TSMOM 12m (baseline) | 0.74 | 0.06 |
+   | Vol target 11%, EWMA risk | 0.93 | 0.14 |
+   | Daily 252d TSMOM, inverse vol | 1.02 | 0.30 |
+   | Daily 252d TSMOM, YZ + corr adjusted | 1.14 | 0.54 |
+   | Daily TSMOM 11% vol (floor, buffer), with inverse-vol sizing | 1.17 | 0.32 |
+   | Daily TSMOM 11% vol (floor, buffer) | 1.25 | 0.44 |
+   | Mix 50/50: EWMA + floor and daily 11% vol | 1.20 | 0.33 |
+
+   The ranking holds, and correlation-adjusted sizing beats inverse vol in both periods. The level does not: about 1.3 in-sample became about 0.4 afterwards. The baseline fell by as much, so this is mostly a weak decade for trend following. Without OHLC data the Yang-Zhang estimate equals close-to-close volatility in 2015-2024.
+2. **Concentration.** The daily 11% vol strategy averages 3.8x gross leverage (6.9x at most) and has no position cap. Correlation-adjusted sizing favours contracts that move alone, so one contract exceeds 100% of capital on 314 of 9,893 days (FX and US bonds, mostly while few contracts were live) and reached 208% (British pound, June 1977, 19 live contracts). With inverse-vol sizing the largest was 88%.
+3. **Flat trading cost.** 1.5 bps per unit traded is applied to every contract and every year back to 1976, and the daily 11% vol strategy turns over 50 times a year. Its net Sharpe is 1.30 at this cost, 1.17 at 3x, 1.05 at 5x and 0.73 at 10x (trading cost only).
 
 ## Writing an alpha
 
