@@ -1,3 +1,4 @@
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,7 @@ from common import (
     Strategy,
     VolTargetPCM,
 )
-from indicators import Momentum, YangZhangVolatility
+from indicators import Momentum, TrendProfile, YangZhangVolatility
 
 # Example Strategy: Daily 252d TSMOM
 
@@ -347,6 +348,173 @@ class AssetClassRiskParityStrategy(ModularStrategy):
         )
 
 
+# Trend profile: score the last 15 months one piece at a time
+#
+# The 12-month return treats every month in the window alike and ignores what came before.
+# The data says otherwise (analysis.lag_profile): each piece of the last 12 months predicts
+# continuation, and the three months before that predict a reversal. So the signal follows
+# the four pieces of the usual 1/3/6/12-month lookbacks and fades months 13-15.
+#
+# Set once, not searched over: the pieces below, a cap of 2 standard deviations on each
+# piece, equal weights and a per-contract cap of 100% of capital. The fade was read off the
+# lag profile of this same sample, so see README caveat 4 before trusting it.
+FOLLOW = ((0, 21), (21, 63), (63, 126), (126, 252))  # months 1, 2-3, 4-6 and 7-12, in bars
+FADE = ((252, 315),)  # months 13-15
+PREMIUM = {"EQ": 0.25, "FI": 0.25}
+MAX_POSITION = 1.0
+
+
+def _profile_classes() -> dict[str, str]:
+    # the asset map files Eurodollar (EC) under FX; it is a short-rate contract
+    return {**_asset_classes(), "EC": "FI"}
+
+
+class TrendProfileAlpha(AlphaModel):
+    """Average capped z-score over the FOLLOW pieces minus the FADE piece, per symbol.
+
+    `premium` adds a constant to every contract of an asset class. Equity and bond futures
+    pay a risk premium for being held, so their signal leans long by a quarter of a standard
+    deviation; commodities and currencies get no lean.
+    """
+
+    def __init__(
+        self,
+        premium: dict[str, float] | None = None,
+        classes: dict[str, str] | None = None,
+    ):
+        self.premium = premium or {}
+        self.classes = classes if classes is not None else _profile_classes()
+        self._profile: dict[str, TrendProfile] = {}
+
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        signals = {}
+        for symbol, bar in bars.items():
+            if symbol not in self._profile:
+                self._profile[symbol] = TrendProfile(follow=FOLLOW, fade=FADE)
+            ind = self._profile[symbol]
+            ind.update(bar)
+            if ind.is_ready:
+                signals[symbol] = ind.value + self.premium.get(self.classes.get(symbol), 0.0)
+        return signals
+
+
+class LearnedProfileAlpha(AlphaModel):
+    """The same pieces with nothing set by hand: a check that the fixed weights are not hindsight.
+
+    Every January the weight on each piece and a long lean per asset class are re-estimated
+    by least squares over every contract-day seen so far: the pieces' scores on a day against
+    the contract's return `horizon` bars later (2, as `exec_lag` in `main.py`), in units of
+    its volatility. The signal is the fitted value. No signal until `burn_in_years` yearly
+    fits have been made.
+    """
+
+    def __init__(
+        self,
+        classes: dict[str, str] | None = None,
+        horizon: int = 2,
+        burn_in_years: int = 5,
+    ):
+        self.classes = classes if classes is not None else _profile_classes()
+        self.horizon = horizon
+        self.burn_in_years = burn_in_years
+        self.leans = sorted(set(self.classes.values()))
+        k = len(FOLLOW) + len(FADE) + len(self.leans)
+        self._xtx = np.zeros((k, k))
+        self._xty = np.zeros(k)
+        self.weights: np.ndarray | None = None
+        self._fits = 0
+        self._year: int | None = None
+        self._profile: dict[str, TrendProfile] = {}
+        self._last_close: dict[str, float] = {}
+        self._waiting: dict[str, deque] = {}  # scores still waiting for their return
+
+    def _refit(self) -> None:
+        seen = np.diag(self._xtx) > 0.0  # a class with no history yet gets no lean
+        if not seen.any():
+            return
+        self._fits += 1
+        if self._fits < self.burn_in_years:
+            return
+        self.weights = np.zeros(len(self._xty))
+        self.weights[seen] = np.linalg.lstsq(
+            self._xtx[np.ix_(seen, seen)], self._xty[seen], rcond=None
+        )[0]
+
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        year = context.current_date.year
+        if year != self._year:
+            self._refit()
+            self._year = year
+
+        signals = {}
+        for symbol, bar in bars.items():
+            if symbol not in self._profile:
+                self._profile[symbol] = TrendProfile(follow=FOLLOW, fade=FADE)
+                self._waiting[symbol] = deque()
+            ind, waiting = self._profile[symbol], self._waiting[symbol]
+            ind.update(bar)
+
+            if len(waiting) == self.horizon:
+                x, vol = waiting.popleft()
+                y = (bar.close / self._last_close[symbol] - 1.0) / vol
+                self._xtx += np.outer(x, x)
+                self._xty += x * y
+            self._last_close[symbol] = bar.close
+
+            if ind.is_ready:
+                lean = [float(self.classes.get(symbol) == c) for c in self.leans]
+                x = np.array(ind.scores() + lean)
+                waiting.append((x, ind.vol))
+                if self.weights is not None:
+                    signals[symbol] = float(x @ self.weights)
+        return signals
+
+
+class PositionCapPCM(PortfolioConstructionModel):
+    """Wraps a PCM and limits every contract to +-`cap` of capital."""
+
+    def __init__(self, base: PortfolioConstructionModel, cap: float = MAX_POSITION):
+        self.base = base
+        self.cap = cap
+
+    def create_targets(self, signals, cov):
+        targets = self.base.create_targets(signals, cov)
+        return {s: float(np.clip(w, -self.cap, self.cap)) for s, w in targets.items()}
+
+
+class TrendProfileStrategy(ModularStrategy):
+    """Trend profile signal on the same sizing as the daily 11% vol strategy: 3% vol floor,
+    correlation-adjusted sizing, 11% ex-ante vol, 20% trade buffer, plus the position cap.
+    """
+
+    def __init__(self, alpha_model: AlphaModel | None = None):
+        super().__init__(
+            alpha_model=alpha_model or TrendProfileAlpha(),
+            risk_model=VolFloorRiskModel(
+                SampleCovarianceRiskModel(periods_per_year=252, min_periods=20)
+            ),
+            pcm=PositionCapPCM(
+                TradeBufferPCM(VolTargetPCM(CorrelationAdjustedPCM(1.0), target_vol=0.11))
+            ),
+            schedule=DailySchedule(),
+            risk_lookback=60,
+        )
+
+
+class TrendProfilePremiumStrategy(TrendProfileStrategy):
+    """Trend profile with the long lean in equity and bond futures."""
+
+    def __init__(self):
+        super().__init__(TrendProfileAlpha(premium=PREMIUM))
+
+
+class LearnedProfileStrategy(TrendProfileStrategy):
+    """Trend profile with piece weights and class leans learned from past data only."""
+
+    def __init__(self):
+        super().__init__(LearnedProfileAlpha())
+
+
 # Registry of user strategies to be evaluated in main.py
 USER_STRATEGIES: dict[str, type[Strategy]] = {
     "Daily 252d TSMOM, inverse vol": DailyTsmomStrategy,
@@ -355,4 +523,7 @@ USER_STRATEGIES: dict[str, type[Strategy]] = {
     "Daily TSMOM 11% vol (floor, buffer)": DailyTsmomVolTargetStrategy,
     "EWMA vol target + floor": FloorEwmaVolTargetStrategy,
     "Mix 50/50: EWMA + floor and daily 11% vol": MixedSpeedStrategy,
+    "Trend profile": TrendProfileStrategy,
+    "Trend profile + equity/bond premium": TrendProfilePremiumStrategy,
+    "Trend profile, learned weights": LearnedProfileStrategy,
 }

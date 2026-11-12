@@ -375,6 +375,56 @@ def correlation_structure(
     ).T
 
 
+# Lag Profile
+
+
+def lag_profile(
+    panel: Panel,
+    windows: list[tuple[int, int]],
+    start: str | None = None,
+    end: str | None = None,
+    lag: int = 2,
+    cap: float = 2.0,
+    vol_span: int = 60,
+) -> pd.DataFrame:
+    """Sharpe ratio, before costs, of trading each lookback window on its own.
+
+    For a window (a, b) every contract is held in proportion to its move from b to a bars
+    ago (in volatility units, capped at +-`cap`), at equal risk, from `lag` days later.
+    Positive means the window predicts continuation, negative a reversal.
+    """
+    close = panel.close_df.loc[:end]
+    logs = {s: np.log(close[s].dropna()) for s in close}
+    vol = {s: x.diff().ewm(span=vol_span, min_periods=20).std() for s, x in logs.items()}
+
+    def on_panel(per_symbol: dict[str, pd.Series]) -> pd.DataFrame:
+        # each contract's own-bar series, carried over the days it did not trade
+        return pd.DataFrame(per_symbol).reindex(close.index).ffill()
+
+    unit_return = panel.returns.loc[:end].shift(-lag) / on_panel(vol)
+    classes = panel.asset_map["AssetClass"].reindex(close.columns)
+    groups = {"All": list(close.columns)}
+    for cls in sorted(classes.dropna().unique()):
+        groups[cls] = list(classes.index[classes == cls])
+
+    rows = {}
+    for a, b in windows:
+        score = on_panel(
+            {
+                s: ((x.shift(a) - x.shift(b)) / (vol[s] * np.sqrt(b - a))).clip(-cap, cap)
+                for s, x in logs.items()
+            }
+        )
+        pnl = (score * unit_return).loc[start:]
+        row = {}
+        for name, members in groups.items():
+            daily = pnl[members].mean(axis=1)
+            monthly = daily.groupby(daily.index.to_period("M")).sum()
+            row[name] = float(monthly.mean() / monthly.std() * np.sqrt(12))
+        rows[f"{a}-{b}"] = row
+    return pd.DataFrame(rows).T
+
+
 # Risk Model Bias Check
 
 

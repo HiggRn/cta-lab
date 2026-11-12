@@ -5,6 +5,7 @@ import pandas as pd
 from analysis import (
     alpha_table,
     correlation_structure,
+    lag_profile,
     load_benchmarks,
     monthly_returns,
     plot_strategies,
@@ -75,8 +76,15 @@ def main() -> None:
     summary.to_csv(OUTPUT_DIR / "strategy_comparison.csv")
     print(summary.round(3).to_string())
 
+    # Which past months predict returns: the reason for the trend profile strategies
+    months = [(a, a + 21) for a in range(0, 378, 21)]
+    profile = lag_profile(panel, months, start=START, end=SAMPLE_END)
+    profile.to_csv(OUTPUT_DIR / "lag_profile.csv")
+    print("\n== Lag Profile: gross Sharpe of trading each past month alone (bars ago) ==")
+    print(profile.round(2).to_string())
+
     # Factor & Benchmark Alpha Attribution
-    target_name = "Daily 252d TSMOM, YZ + corr adjusted"
+    target_name = "Trend profile"
     target_ret = monthly[target_name]
     benchmarks, factors = load_benchmarks(panel, monthly[STATIC_NAME], FACTOR_DIR)
 

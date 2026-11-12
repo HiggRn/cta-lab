@@ -99,3 +99,23 @@ def test_no_lookahead(panel, tmp_path, name):
     pd.testing.assert_series_equal(
         full.net_pnl.loc[:cutoff], short.net_pnl, check_freq=False
     )
+
+
+def test_trend_profile_earns_nothing_once_returns_are_scrambled(tmp_path):
+    # flip the sign of each day's returns at random, the same flip for every contract:
+    # vol and correlations survive, anything predictable does not
+    days = pd.date_range("1960-01-01", "2050-12-31")
+    flip = pd.Series(np.random.default_rng(0).choice([-1.0, 1.0], len(days)), index=days)
+    for file in RAW_DIR.glob("*.csv"):
+        prices = pd.read_csv(file, index_col=0, parse_dates=True)
+        close = prices["Close"].dropna()
+        ret = close.pct_change().fillna(0.0) * flip.reindex(close.index)
+        scrambled = close.iloc[0] * (1.0 + ret).cumprod()
+        for column in ["Open", "High", "Low", "Close"]:
+            prices[column] = scrambled
+        prices.to_csv(tmp_path / file.name)
+    scrambled_panel = Panel(tmp_path, ASSET_MAP_PATH, DROPPED_SYMBOLS)
+
+    res = run_backtest(scrambled_panel, STRATEGIES["Trend profile"](), exec_lag=2)
+    gross = monthly_returns(res, gross=True).loc[SAMPLE_START:]
+    assert abs(sharpe(gross)) < 0.5  # 1.85 on the real data

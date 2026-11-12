@@ -1,14 +1,19 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from common import Bar, InverseVolPCM, PortfolioConstructionModel, RiskModel, Strategy
-from indicators import YangZhangVolatility
+from indicators import EwmaVolatility, TrendProfile, YangZhangVolatility
 from strategy import (
     AssetClassBudgetPCM,
     CorrelationAdjustedPCM,
+    LearnedProfileAlpha,
+    PositionCapPCM,
     SleeveMixStrategy,
     TradeBufferPCM,
+    TrendProfileAlpha,
     VolFloorRiskModel,
     YangZhangRiskModel,
 )
@@ -185,3 +190,83 @@ def test_yang_zhang_risk_model_swaps_vols_and_keeps_correlations():
     assert vol[0] > np.sqrt(sample.loc["a", "a"])  # the range raises the estimate
     assert vol[2] == pytest.approx(np.sqrt(sample.loc["c", "c"]))  # no estimate: sample vol
     assert cov.loc["a", "b"] / (vol[0] * vol[1]) == pytest.approx(rets["a"].corr(rets["b"]))
+
+
+def flat_bars(closes, start="2000-01-03"):
+    days = pd.bdate_range(start, periods=len(closes))
+    return [flat_bar(day, close) for day, close in zip(days, closes)]
+
+
+def random_closes(seed, n, drift=0.0):
+    return 100 * np.exp(np.cumsum(np.random.default_rng(seed).normal(drift, 0.01, n)))
+
+
+def test_ewma_vol_matches_pandas():
+    closes = random_closes(2, 80)
+    expected = pd.Series(np.log(closes)).diff().ewm(span=60, min_periods=20).std()
+    ind = EwmaVolatility(span=60, min_periods=20)
+    for i, bar in enumerate(flat_bars(closes)):
+        ind.update(bar)
+        assert ind.is_ready == (i >= 20)  # 20 returns need 21 bars
+        if ind.is_ready:
+            assert ind.value == pytest.approx(expected[i])
+
+
+def test_trend_profile_scores_each_window_and_fades_the_oldest():
+    closes = random_closes(3, 60)
+    ind = TrendProfile(follow=((0, 5), (5, 20)), fade=((20, 30),), vol_span=10, cap=100.0)
+    for i, bar in enumerate(flat_bars(closes)):
+        ind.update(bar)
+        assert ind.is_ready == (i >= 30)  # the oldest window needs 31 closes
+    logs = np.log(closes)
+    vol = pd.Series(logs).diff().ewm(span=10, min_periods=20).std().iloc[-1]
+    windows = [(0, 5), (5, 20), (20, 30)]
+    z = [(logs[-1 - a] - logs[-1 - b]) / (vol * np.sqrt(b - a)) for a, b in windows]
+    assert ind.scores() == pytest.approx(z)
+    assert ind.value == pytest.approx((z[0] + z[1] - z[2]) / 3)
+
+
+def test_trend_profile_caps_each_window():
+    ind = TrendProfile(follow=((0, 5), (5, 20)), fade=((20, 30),), vol_span=10, cap=0.1)
+    for bar in flat_bars(random_closes(3, 60)):
+        ind.update(bar)
+    assert max(abs(z) for z in ind.scores()) == pytest.approx(0.1)
+    assert abs(ind.value) <= 0.1
+
+
+def test_trend_profile_alpha_leans_long_only_where_told():
+    classes = {"a": "EQ", "b": "COMM"}
+    plain = TrendProfileAlpha(classes=classes)
+    leaning = TrendProfileAlpha(premium={"EQ": 0.25}, classes=classes)
+    first = None
+    for i, bar in enumerate(flat_bars(random_closes(4, 330))):
+        bars = {"a": bar, "b": bar, "c": bar}
+        base, lean = plain.update(bars, None), leaning.update(bars, None)
+        if base and first is None:
+            first = i
+    assert first == 315  # 316 closes cover the 15 months
+    assert lean["a"] == pytest.approx(base["a"] + 0.25)
+    assert lean["b"] == pytest.approx(base["b"])  # no lean for commodities
+    assert lean["c"] == pytest.approx(base["c"])  # nor for a symbol the map does not know
+
+
+def test_learned_profile_waits_for_its_burn_in_then_finds_the_drifting_class():
+    days = pd.bdate_range("2000-01-03", periods=2200)
+    closes = {"a": random_closes(5, len(days), drift=0.001), "b": random_closes(6, len(days))}
+    alpha = LearnedProfileAlpha(classes={"a": "UP", "b": "FLAT"}, burn_in_years=3)
+    first = None
+    for i, day in enumerate(days):
+        bars = {s: flat_bar(day, x[i]) for s, x in closes.items()}
+        if alpha.update(bars, SimpleNamespace(current_date=day)) and first is None:
+            first = day
+    # scores start in 2001, so the third January with data behind it is 2004
+    assert (first.year, first.month) == (2004, 1)
+    lean = dict(zip(alpha.leans, alpha.weights[-2:]))
+    assert lean["UP"] > 0.05 > lean["FLAT"]  # the drift is 0.1 daily standard deviations
+
+
+def test_position_cap_clips_both_sides():
+    base = FixedPCM()
+    base.next = {"a": 2.5, "b": -1.7, "c": 0.4}
+    capped = PositionCapPCM(base, cap=1.0).create_targets({}, None)
+    assert capped == {"a": 1.0, "b": -1.0, "c": 0.4}

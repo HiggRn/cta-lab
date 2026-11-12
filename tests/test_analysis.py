@@ -6,6 +6,7 @@ import pytest
 
 from analysis import (
     correlation_structure,
+    lag_profile,
     max_drawdown,
     monthly_metrics,
     monthly_returns,
@@ -230,3 +231,22 @@ def test_risk_model_bias_uses_the_weights_that_earn_the_month():
     )
     # with the weights of the previous month the Jan-2001 point would be off by 4x
     assert table.loc[("s", "flat"), "Bias stat"] == pytest.approx(1.0, abs=0.06)
+
+
+def test_lag_profile_sign_follows_the_autocorrelation(make_panel):
+    days = pd.bdate_range("2000-01-03", periods=1500)
+    rng = np.random.default_rng(6)
+
+    def ar1(phi):
+        r = np.zeros(len(days))
+        for i, shock in enumerate(rng.normal(0, 0.01, len(days))):
+            r[i] = phi * r[i - 1] + shock
+        return pd.Series(100 * np.exp(np.cumsum(r)), index=days)
+
+    panel = make_panel(
+        {"trend": ar1(0.3), "revert": ar1(-0.3)}, {"trend": "FX", "revert": "EQ"}
+    )
+    out = lag_profile(panel, [(0, 1)], lag=1)
+    assert list(out.columns) == ["All", "EQ", "FX"]
+    assert out.loc["0-1", "FX"] > 1.0  # yesterday's move continues
+    assert out.loc["0-1", "EQ"] < -1.0  # yesterday's move reverses
