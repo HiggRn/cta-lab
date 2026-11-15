@@ -1,5 +1,8 @@
 from pathlib import Path
 
+SAMPLE_START = "1976-02"
+SAMPLE_END = "2014-12"  # end of the in-sample window
+
 FULL_RAW_DIR = Path("./data/full_raw")
 ASSET_MAP_PATH = Path("./data/processed/AssetMapCsv.csv")
 SG_TREND_PATH = Path("./data/processed/Lecture3_livedata.xlsx")

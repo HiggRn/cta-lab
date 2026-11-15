@@ -6,7 +6,9 @@ from common import Strategy
 from engine import FuturesCostModel, run_backtest
 
 DATES = pd.bdate_range("2000-03-01", periods=12)
-RET_A = np.array([0, 0.01, 0.02, -0.01, 0.03, -0.02, 0.01, 0.0, 0.02, -0.01, 0.01, 0.02])
+RET_A = np.array(
+    [0, 0.01, 0.02, -0.01, 0.03, -0.02, 0.01, 0.0, 0.02, -0.01, 0.01, 0.02]
+)
 RET_B = RET_A * 0.5
 
 
@@ -66,8 +68,12 @@ def test_panel_gap_handling(make_panel):
     panel = make_panel({"a": closes_from(RET_A), "b": b})
     close = b.reindex(DATES).ffill()
     assert panel.returns.loc[DATES[3], "b"] == 0.0  # holiday: P&L earns nothing
-    assert panel.returns.loc[DATES[4], "b"] == pytest.approx(close[DATES[4]] / close[DATES[2]] - 1.0)
-    assert np.isnan(panel.observed_returns.loc[DATES[3], "b"])  # estimation: not a return
+    assert panel.returns.loc[DATES[4], "b"] == pytest.approx(
+        close[DATES[4]] / close[DATES[2]] - 1.0
+    )
+    assert np.isnan(
+        panel.observed_returns.loc[DATES[3], "b"]
+    )  # estimation: not a return
     assert panel.observed_returns.loc[DATES[4], "b"] == panel.returns.loc[DATES[4], "b"]
     assert "b" not in panel.timeline[3][1]
 
@@ -92,7 +98,9 @@ def test_exec_lag_one_trades_at_the_signal_close(make_panel):
     assert (res.positions["a"].iloc[:3] == 0).all()
     assert res.positions["a"].iloc[3] == pytest.approx(0.5)
     assert (res.gross_pnl.iloc[:3] == 0).all()
-    assert res.gross_pnl.iloc[3] == pytest.approx(0.5 * RET_A[3])  # first earned return is t+1
+    assert res.gross_pnl.iloc[3] == pytest.approx(
+        0.5 * RET_A[3]
+    )  # first earned return is t+1
 
 
 def test_exec_lag_two_trades_one_bar_later(make_panel):
@@ -155,9 +163,7 @@ def test_futures_cost_model_accounting(make_panel):
     assert res.trading_costs.drop(DATES[3]).sum() == 0.0
 
     gross_leverage = res.positions.abs().sum(axis=1)
-    np.testing.assert_allclose(
-        res.roll_costs, gross_leverage * 1.5e-4 * 4.0 / 252
-    )
+    np.testing.assert_allclose(res.roll_costs, gross_leverage * 1.5e-4 * 4.0 / 252)
     np.testing.assert_allclose(
         res.financing_costs, (gross_leverage - 1.0).clip(lower=0.0) * 50e-4 / 252
     )
@@ -204,3 +210,43 @@ def test_strategy_only_sees_data_up_to_today(make_panel):
     assert spy.rows[3]["traded"] == ["a"]
     assert np.isnan(spy.rows[3]["b_return"])  # no bar, no observed return
     assert not spy.mutated_copy_leaked
+
+
+# Delisting
+
+
+def test_position_in_a_contract_past_its_last_bar_is_closed_as_a_trade(make_panel):
+    late = closes_from(RET_B).iloc[:8]  # last bar is DATES[7]
+    panel = make_panel({"a": closes_from(RET_A), "late": late})
+    model = FuturesCostModel(
+        trading_cost_bps=1.5, roll_cost_bps=0.0, financing_cost_bps=0.0
+    )
+    res = run_backtest(
+        panel, OneShot(2, {"a": 0.5, "late": 0.5}), cost_model=model, exec_lag=1
+    )
+    assert (res.positions["late"].iloc[3:8] > 0).all()
+    assert (res.positions["late"].iloc[8:] == 0).all()
+    assert res.turnover.iloc[8] == pytest.approx(
+        0.5, rel=0.1
+    )  # only the close-out trades that day
+    assert res.trading_costs.iloc[8] == pytest.approx(res.turnover.iloc[8] * 1.5e-4)
+    assert res.turnover.iloc[9:].sum() == 0.0
+
+
+def test_order_filled_after_the_last_bar_never_opens_a_position(make_panel):
+    late = closes_from(RET_B).iloc[:8]
+    panel = make_panel({"a": closes_from(RET_A), "late": late})
+    res = run_backtest(
+        panel, OneShot(7, {"a": 0.5, "late": 0.5}), exec_lag=2
+    )  # fills on DATES[9]
+    assert (res.positions["late"] == 0.0).all()
+    assert res.positions["a"].iloc[9] == pytest.approx(0.5)
+    assert res.turnover.iloc[9] == pytest.approx(0.5)
+
+
+def test_weights_for_a_dead_contract_are_dropped_at_the_decision(make_panel):
+    late = closes_from(RET_B).iloc[:8]
+    panel = make_panel({"a": closes_from(RET_A), "late": late})
+    res = run_backtest(panel, OneShot(9, {"a": 0.5, "late": 0.5}), exec_lag=1)
+    assert (res.weights["late"] == 0.0).all()
+    assert (res.weights["a"].iloc[9:] == 0.5).all()

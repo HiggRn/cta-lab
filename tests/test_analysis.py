@@ -11,6 +11,7 @@ from analysis import (
     monthly_metrics,
     monthly_returns,
     ols,
+    plot_strategies,
     regime_returns,
     risk_model_bias,
     sg_trend_comparison,
@@ -91,7 +92,9 @@ def test_sharpe_diff_test():
 
 
 def test_summary_table_reports_executed_turnover_and_costs():
-    days = pd.bdate_range("2000-01-03", "2001-12-31")  # 23 monthly rows after the first trade month
+    days = pd.bdate_range(
+        "2000-01-03", "2001-12-31"
+    )  # 23 monthly rows after the first trade month
     rng = np.random.default_rng(1)
     trade_days = days[[100, 200, 300, 400]]
     turnover = pd.Series(0.0, index=days)
@@ -99,7 +102,9 @@ def test_summary_table_reports_executed_turnover_and_costs():
     trading_costs = turnover * 1e-4
 
     def result(seed):
-        pnl = pd.Series(np.random.default_rng(seed).normal(0.0005, 0.005, len(days)), index=days)
+        pnl = pd.Series(
+            np.random.default_rng(seed).normal(0.0005, 0.005, len(days)), index=days
+        )
         return make_result(pnl, 1.0, turnover=turnover, trading_costs=trading_costs)
 
     table = strategy_summary_table({"base": result(1), "other": result(2)}, "base")
@@ -212,7 +217,9 @@ class FlatVol(RiskModel):
 def test_risk_model_bias_uses_the_weights_that_earn_the_month():
     days = pd.bdate_range("2000-01-03", "2001-12-31")
     month = days.to_period("M")
-    weight = pd.Series(np.where(days < "2001-01-01", 1.0, 4.0), index=days)  # re-sized on 1 Jan 2001
+    weight = pd.Series(
+        np.where(days < "2001-01-01", 1.0, 4.0), index=days
+    )  # re-sized on 1 Jan 2001
     weights = pd.DataFrame({"a": weight})
 
     # each month's return is exactly +/- 1 predicted monthly stdev of the weights held that month
@@ -222,7 +229,9 @@ def test_risk_model_bias_uses_the_weights_that_earn_the_month():
         sign = 1.0 if k % 2 == 0 else -1.0
         pnl[first_day] = sign * abs(weight[first_day]) * 0.20 / np.sqrt(12.0)
 
-    res = SimpleNamespace(weights=weights, positions=weights, gross_pnl=pnl, net_pnl=pnl)
+    res = SimpleNamespace(
+        weights=weights, positions=weights, gross_pnl=pnl, net_pnl=pnl
+    )
     table = risk_model_bias(
         pd.DataFrame(0.0, index=days, columns=["a"]),
         {"s": res},
@@ -250,3 +259,63 @@ def test_lag_profile_sign_follows_the_autocorrelation(make_panel):
     assert list(out.columns) == ["All", "EQ", "FX"]
     assert out.loc["0-1", "FX"] > 1.0  # yesterday's move continues
     assert out.loc["0-1", "EQ"] < -1.0  # yesterday's move reverses
+
+
+def test_correlation_structure_slices_by_start_and_end(make_panel):
+    rng = np.random.default_rng(0)
+    days = pd.bdate_range("2000-01-03", periods=780)
+    common = rng.normal(0, 0.01, len(days))
+    own = rng.normal(0, 0.01, (len(days), 2))
+    first_half = (np.arange(len(days)) < 390)[:, None]
+    fx = np.where(
+        first_half, common[:, None] + 0.1 * own, own
+    )  # one shared driver, first half only
+    eq = rng.normal(0, 0.01, (len(days), 2))
+
+    def prices(ret):
+        return pd.Series(100.0 * np.cumprod(1.0 + ret), index=days)
+
+    closes = {
+        "f1": prices(fx[:, 0]),
+        "f2": prices(fx[:, 1]),
+        "e1": prices(eq[:, 0]),
+        "e2": prices(eq[:, 1]),
+    }
+    classes = {"f1": "FX", "f2": "FX", "e1": "EQ", "e2": "EQ"}
+    panel = make_panel(closes, asset_classes=classes)
+    res = SimpleNamespace(
+        positions=pd.DataFrame(1.0, index=panel.all_dates, columns=panel.symbols)
+    )
+
+    early = correlation_structure(panel, res, end=str(days[389].date()))
+    late = correlation_structure(panel, res, start=str(days[390].date()))
+    fx_early = early.loc["Passive Buy & Hold", "Within FX"]
+    fx_late = late.loc["Passive Buy & Hold", "Within FX"]
+    assert fx_early > fx_late + 0.5
+
+
+def test_plot_strategies_saves_figure_and_data_without_showing(tmp_path, monkeypatch):
+    import matplotlib.pyplot as plt
+
+    plt.switch_backend("Agg")
+    monkeypatch.setattr(
+        plt, "show", lambda *a, **k: pytest.fail("plt.show() must not be called")
+    )
+    days = pd.bdate_range("2000-01-03", periods=60)
+    pnl = pd.Series(np.where(np.arange(60) % 2 == 0, 0.01, -0.005), index=days)
+
+    plot_strategies(
+        {"s": make_result(pnl, 1.0)},
+        tmp_path,
+        "t",
+        sample_start="2000-01-10",
+        sample_end="2000-03-01",
+    )
+
+    window = pnl.loc["2000-01-10":"2000-03-01"]
+    nav = pd.read_csv(tmp_path / "plot_nav_t.csv", index_col=0, parse_dates=True)
+    dd = pd.read_csv(tmp_path / "plot_drawdown_t.csv", index_col=0, parse_dates=True)
+    assert (tmp_path / "equity_drawdown_t.png").stat().st_size > 0
+    np.testing.assert_allclose(nav["s"], (1.0 + window).cumprod())
+    assert nav.index[0] == window.index[0] and nav.index[-1] == window.index[-1]
+    assert (dd["s"] <= 0).all()

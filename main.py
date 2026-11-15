@@ -20,15 +20,14 @@ from config import (
     FULL_RAW_DIR,
     OUTPUT_DIR,
     ROLL_FIXES,
+    SAMPLE_END,
+    SAMPLE_START,
     SG_TREND_PATH,
     SUCCESSORS,
 )
 from engine import FuturesCostModel, run_backtest
 from panel import Panel
 from strategy import USER_STRATEGIES
-
-SAMPLE_START = "1976-02"
-SAMPLE_END = "2014-12"
 
 BASELINE_NAME = "TSMOM 12m (baseline)"
 STATIC_NAME = "Static benchmark"
