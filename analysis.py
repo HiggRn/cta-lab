@@ -512,24 +512,34 @@ def risk_model_bias(
 
 def plot_strategies(
     results: dict[str, BacktestResult],
+    out_dir: Path,
+    tag: str,
     sample_start: str | None = None,
     sample_end: str | None = None,
 ) -> None:
-    """Plot cumulative log-wealth and underwater drawdown curves for compared strategies."""
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
-
+    """Plot cumulative net wealth and drawdowns; save the figure and the daily series behind it."""
+    navs, dds = {}, {}
     for name, res in results.items():
         pnl = (
             res.net_pnl.loc[sample_start:sample_end]
             if sample_start
             else res.net_pnl.loc[first_trade_date(res) : sample_end]
-        )
-        pnl = pnl.fillna(0.0)
+        ).fillna(0.0)
         nav = (1.0 + pnl).cumprod()
-        dd = nav / nav.cummax() - 1.0
+        navs[name] = nav
+        dds[name] = nav / nav.cummax() - 1.0
+    nav_df = pd.DataFrame(navs)
+    dd_df = pd.DataFrame(dds)
 
-        ax1.plot(nav.index, nav.values, label=name)
-        ax2.plot(dd.index, dd.values, label=name)
+    # the data behind the figure, so it can be redrawn later without rerunning the backtests
+    out_dir.mkdir(parents=True, exist_ok=True)
+    nav_df.to_csv(out_dir / f"plot_nav_{tag}.csv")
+    dd_df.to_csv(out_dir / f"plot_drawdown_{tag}.csv")
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+    for name in nav_df.columns:
+        ax1.plot(nav_df.index, nav_df[name], label=name)
+        ax2.plot(dd_df.index, dd_df[name], label=name)
 
     ax1.set_yscale("log")
     ax1.set_title("Cumulative Net Wealth (Log Scale)")
@@ -542,5 +552,6 @@ def plot_strategies(
     ax2.set_xlabel("Date")
     ax2.grid(True, alpha=0.3)
 
-    plt.tight_layout()
-    plt.show()
+    fig.tight_layout()
+    fig.savefig(out_dir / f"equity_drawdown_{tag}.png", dpi=150)
+    plt.close(fig)

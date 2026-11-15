@@ -154,7 +154,11 @@ def main() -> None:
 
         # Plot Equity & Drawdown Curves
         plot_strategies(
-            {k: results[k] for k in selected}, sample_start=start, sample_end=end
+            {k: results[k] for k in selected},
+            OUTPUT_DIR,
+            tag,
+            sample_start=start,
+            sample_end=end,
         )
 
 
