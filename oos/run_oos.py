@@ -20,11 +20,12 @@ from main import (
     RAW_DIR,
     STATIC_NAME,
 )
+RAW_DIR = Path("./data/baseline62_raw")
 from oos.splice import check_splice
 from panel import Panel
 from strategy import USER_STRATEGIES
 
-OOS_DIR = Path("./data/oos")
+OOS_DIR = Path("./data/baseline62_oos")
 OOS_START = "2015-01"
 
 

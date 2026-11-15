@@ -176,6 +176,14 @@ def run_backtest(
     last_w_vec = np.zeros(n_assets)
 
     for idx, (t, bars) in enumerate(panel.timeline):
+        # OOS diagnostic fix: remove positions after their final observed bar.
+        # This uses full-sample information and is NOT a tradable exit rule.
+        expired = (panel.last_valid_idx < idx) & (held != 0.0)
+        if np.any(expired):
+            held[expired] = 0.0
+            for j in np.flatnonzero(expired):
+                pending_targets.pop(int(j), None)
+
         # 1. Promote any order scheduled for today into pending_targets
         if idx in scheduled_orders:
             target_vec = scheduled_orders.pop(idx)

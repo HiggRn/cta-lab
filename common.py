@@ -240,7 +240,13 @@ class ModularStrategy(Strategy):
             return None
 
         self._signals.update(self.alpha_model.update(bars, context))
-
+        # OOS diagnostic fix: remove signals for inactive contracts.
+        active = context.active_universe
+        self._signals = {
+            symbol: signal
+            for symbol, signal in self._signals.items()
+            if symbol in active
+        }
         if not self.schedule.should_rebalance(bars, context):
             return None
 
