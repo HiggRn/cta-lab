@@ -14,13 +14,15 @@ from common import (
     InverseVolPCM,
     ModularStrategy,
     PortfolioConstructionModel,
+    RebalanceSchedule,
     RiskModel,
     SampleCovarianceRiskModel,
     Strategy,
     VolTargetPCM,
+    exante_vol,
 )
 from config import ASSET_MAP_PATH
-from indicators import Momentum, TrendProfile, YangZhangVolatility
+from indicators import Momentum, TrendProfile, TrendTStat, YangZhangVolatility
 
 # Example Strategy: Daily 252d TSMOM
 
@@ -530,6 +532,183 @@ class LearnedProfileStrategy(TrendProfileStrategy):
         super().__init__(LearnedProfileAlpha())
 
 
+# KV1 / KV2: the plain 12-month TSMOM with a few changes (README, "KV1 and KV2")
+#
+# Start from the simplest book: sign of the 12-month return, 1/vol sizing, scaled to 11%
+# ex-ante vol, rebuilt every 21 trading days. KV1 changes four things and KV2 two more.
+# The vol floor is the 3% one from the daily 11% vol strategy; the rest are below.
+NO_SHORT = ("EQ",)  # equity indices are never shorted
+CYCLE = 21  # trading days each tranche is held
+TRANCHE_DAYS = (0, 5, 10, 15)  # days of the cycle on which one tranche is rebuilt
+SLEEVE_CLASSES = ("EQ", "FI")
+SLEEVE_SHARE = 0.25
+
+
+class NoShortAlpha(AlphaModel):
+    """Wraps an alpha and sets short signals to zero in the asset classes in `flat`."""
+
+    def __init__(
+        self,
+        base: AlphaModel,
+        flat: tuple[str, ...] = NO_SHORT,
+        classes: dict[str, str] | None = None,
+    ):
+        self.base = base
+        self.flat = flat
+        self.classes = classes if classes is not None else _profile_classes()
+
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        signals = self.base.update(bars, context)
+        return {
+            s: 0.0 if x < 0.0 and self.classes.get(s) in self.flat else x
+            for s, x in signals.items()
+        }
+
+
+class TrendStrengthAlpha(AlphaModel):
+    """t-stat of the 252-bar return, capped at +-`cap` and divided by it.
+
+    A clear trend gets +-1, same as the sign. A 12-month move that is small next to the
+    contract's own noise gets a smaller position instead of a full one.
+    """
+
+    def __init__(self, lookback: int = 252, cap: float = 1.0):
+        self.lookback = lookback
+        self.cap = cap
+        self._tstat: dict[str, TrendTStat] = {}
+
+    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        signals = {}
+        for symbol, bar in bars.items():
+            if symbol not in self._tstat:
+                self._tstat[symbol] = TrendTStat(self.lookback)
+            ind = self._tstat[symbol]
+            ind.update(bar)
+            if ind.is_ready:
+                signals[symbol] = float(np.clip(ind.value / self.cap, -1.0, 1.0))
+        return signals
+
+
+class EwmaVolRiskModel(RiskModel):
+    """Sample correlations of the returns passed in, with EWMA vols (centre of mass 60
+    days) on the diagonal.
+
+    The 12-month vol is slow: after a quiet year it keeps positions big well into a
+    selloff. Correlations stay on the full window, where they are better estimated.
+    """
+
+    def __init__(self, com: float = 60.0, periods_per_year: int = 252):
+        self.com = com
+        self.periods_per_year = periods_per_year
+
+    def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        cov = returns.cov(min_periods=20) * self.periods_per_year
+        ewma = returns.ewm(com=self.com, min_periods=20).std().iloc[-1]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            scale = (
+                ewma.to_numpy() * np.sqrt(self.periods_per_year) / np.sqrt(np.diag(cov))
+            )
+        return cov * np.outer(scale, scale)
+
+
+class TrancheSchedule(RebalanceSchedule):
+    """Rebalance on trading days `days` of every `cycle`-day cycle."""
+
+    def __init__(self, cycle: int = CYCLE, days: tuple[int, ...] = TRANCHE_DAYS):
+        self.cycle = cycle
+        self.days = days
+        self._count = -1
+
+    def should_rebalance(self, bars: dict[str, Bar], context: HistoryContext) -> bool:
+        if not bars:
+            return False
+        self._count += 1
+        return self._count % self.cycle in self.days
+
+
+class TranchePCM(PortfolioConstructionModel):
+    """Wraps a PCM and holds the average of its last `parts` targets.
+
+    With `TrancheSchedule` these are four books with a quarter of the capital each,
+    every one rebuilt every 21 trading days, about a week apart. A single monthly book
+    depends a lot on which day of the month it happens to trade.
+    """
+
+    def __init__(
+        self, base: PortfolioConstructionModel, parts: int = len(TRANCHE_DAYS)
+    ):
+        self.base = base
+        self._recent: deque[dict[str, float]] = deque(maxlen=parts)
+
+    def create_targets(self, signals, cov):
+        self._recent.append(self.base.create_targets(signals, cov))
+        book: dict[str, float] = {}
+        for targets in self._recent:
+            for s, w in targets.items():
+                book[s] = book.get(s, 0.0) + w / self._recent.maxlen
+        return book
+
+
+class RiskParitySleevePCM(PortfolioConstructionModel):
+    """Wraps a PCM and gives `share` of the book to a long-only risk-parity sleeve.
+
+    The sleeve is long every equity and bond future at 1/vol, the two classes scaled to
+    the same stand-alone risk, and is brought to the trend book's ex-ante vol before
+    the two are mixed. This part is not trend following: it earns the equity and bond
+    premium.
+    """
+
+    def __init__(
+        self,
+        base: PortfolioConstructionModel,
+        share: float = SLEEVE_SHARE,
+        classes: dict[str, str] | None = None,
+    ):
+        self.base = base
+        self.share = share
+        self.classes = classes if classes is not None else _profile_classes()
+        self._sleeve = AssetClassBudgetPCM(InverseVolPCM(), self.classes)
+
+    def create_targets(self, signals, cov):
+        trend = self.base.create_targets(signals, cov)
+        longs = {s: 1.0 for s in signals if self.classes.get(s) in SLEEVE_CLASSES}
+        sleeve = self._sleeve.create_targets(longs, cov)
+        sleeve_vol = exante_vol(sleeve, cov) if sleeve else 0.0
+        if not trend or not sleeve_vol > 0.0:
+            return trend
+        k = self.share * exante_vol(trend, cov) / sleeve_vol
+        book = {s: (1.0 - self.share) * w for s, w in trend.items()}
+        for s, w in sleeve.items():
+            book[s] = book.get(s, 0.0) + k * w
+        return book
+
+
+class KV1Strategy(ModularStrategy):
+    """12-month sign, no equity shorts, EWMA vol with the 3% floor, four weekly
+    tranches, 11% vol.
+    """
+
+    def __init__(
+        self,
+        alpha_model: AlphaModel | None = None,
+        pcm: PortfolioConstructionModel | None = None,
+    ):
+        super().__init__(
+            alpha_model=NoShortAlpha(alpha_model or DailyTsmomAlpha(lookback=252)),
+            risk_model=VolFloorRiskModel(EwmaVolRiskModel()),
+            pcm=TranchePCM(VolTargetPCM(pcm or InverseVolPCM(), target_vol=0.11)),
+            schedule=TrancheSchedule(),
+            risk_lookback=252,
+        )
+
+
+class KV2Strategy(KV1Strategy):
+    """KV1 with the trend-strength signal and a quarter of the risk in the sleeve."""
+
+    def __init__(self):
+        super().__init__(TrendStrengthAlpha(), RiskParitySleevePCM(InverseVolPCM()))
+
+
 # Registry of user strategies to be evaluated in main.py
 USER_STRATEGIES: dict[str, type[Strategy]] = {
     "Daily 252d TSMOM, inverse vol": DailyTsmomStrategy,
@@ -541,4 +720,6 @@ USER_STRATEGIES: dict[str, type[Strategy]] = {
     "Trend profile": TrendProfileStrategy,
     "Trend profile + equity/bond premium": TrendProfilePremiumStrategy,
     "Trend profile, learned weights": LearnedProfileStrategy,
+    "KV1": KV1Strategy,
+    "KV2": KV2Strategy,
 }

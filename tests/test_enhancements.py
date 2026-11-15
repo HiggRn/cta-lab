@@ -5,15 +5,21 @@ import pandas as pd
 import pytest
 
 from common import Bar, InverseVolPCM, PortfolioConstructionModel, RiskModel, Strategy
-from indicators import EwmaVolatility, TrendProfile, YangZhangVolatility
+from indicators import EwmaVolatility, TrendProfile, TrendTStat, YangZhangVolatility
 from strategy import (
     AssetClassBudgetPCM,
     CorrelationAdjustedPCM,
+    EwmaVolRiskModel,
     LearnedProfileAlpha,
+    NoShortAlpha,
     PositionCapPCM,
+    RiskParitySleevePCM,
     SleeveMixStrategy,
     TradeBufferPCM,
+    TrancheSchedule,
+    TranchePCM,
     TrendProfileAlpha,
+    TrendStrengthAlpha,
     VolFloorRiskModel,
     YangZhangRiskModel,
 )
@@ -270,3 +276,84 @@ def test_position_cap_clips_both_sides():
     base.next = {"a": 2.5, "b": -1.7, "c": 0.4}
     capped = PositionCapPCM(base, cap=1.0).create_targets({}, None)
     assert capped == {"a": 1.0, "b": -1.0, "c": 0.4}
+
+
+def test_no_short_alpha_flattens_equity_shorts_only():
+    base = SimpleNamespace(
+        update=lambda bars, context: {"a": -1.0, "b": 1.0, "c": -0.5, "d": -1.0}
+    )
+    alpha = NoShortAlpha(base, classes={"a": "EQ", "b": "EQ", "c": "FI"})
+    assert alpha.update({}, None) == {"a": 0.0, "b": 1.0, "c": -0.5, "d": -1.0}
+
+
+def test_trend_tstat_is_the_t_stat_of_daily_log_returns():
+    closes = random_closes(7, 40, drift=0.002)
+    ind = TrendTStat(lookback=30)
+    for i, bar in enumerate(flat_bars(closes)):
+        ind.update(bar)
+        assert ind.is_ready == (i >= 30)  # 30 returns need 31 closes
+    r = np.diff(np.log(closes[-31:]))
+    assert ind.value == pytest.approx(r.mean() / r.std(ddof=1) * np.sqrt(30))
+
+
+def test_trend_strength_alpha_scales_by_the_cap_and_clips():
+    days = pd.bdate_range("2000-01-03", periods=300)
+    closes = {"up": random_closes(8, 300, drift=0.01), "flat": random_closes(9, 300)}
+    alpha, tstat = TrendStrengthAlpha(lookback=252, cap=2.0), TrendTStat(252)
+    for i, day in enumerate(days):
+        bars = {s: flat_bar(day, x[i]) for s, x in closes.items()}
+        signals = alpha.update(bars, None)
+        tstat.update(bars["flat"])
+    assert signals["up"] == 1.0  # t-stat of about 16
+    assert signals["flat"] == pytest.approx(np.clip(tstat.value / 2.0, -1.0, 1.0))
+
+
+def test_ewma_vol_risk_model_swaps_vols_and_keeps_correlations():
+    rng = np.random.default_rng(10)
+    a = np.concatenate([rng.normal(0, 0.005, 200), rng.normal(0, 0.02, 52)])
+    rets = pd.DataFrame({"a": a, "b": 0.5 * a + rng.normal(0, 0.01, 252)})
+    cov = EwmaVolRiskModel(com=60).covariance(rets)
+    vol = np.sqrt(np.diag(cov))
+    expected = rets.ewm(com=60).std().iloc[-1] * np.sqrt(252)
+    assert vol == pytest.approx(expected.to_numpy())
+    assert vol[0] > rets["a"].std() * np.sqrt(252)  # reacts to the rough end
+    corr = cov.loc["a", "b"] / (vol[0] * vol[1])
+    assert corr == pytest.approx(rets["a"].corr(rets["b"]))
+
+
+def test_tranche_schedule_fires_on_the_same_days_of_every_cycle():
+    schedule = TrancheSchedule(cycle=21, days=(0, 5, 10, 15))
+    fired = [i for i in range(63) if schedule.should_rebalance({"a": None}, None)]
+    assert fired == [0, 5, 10, 15, 21, 26, 31, 36, 42, 47, 52, 57]
+    assert not schedule.should_rebalance({}, None)  # a day with no bars is not counted
+    assert schedule.should_rebalance({"a": None}, None)  # day 63 starts a new cycle
+
+
+def test_tranche_pcm_averages_the_last_targets():
+    base = FixedPCM()
+    pcm = TranchePCM(base, parts=4)
+    outs = []
+    for t in [{"a": 1.0}, {"a": 1.0, "b": -1.0}, {"a": 0.0}, {"a": 2.0}, {"b": 1.0}]:
+        base.next = t
+        outs.append(pcm.create_targets({}, None))
+    assert outs[0] == pytest.approx({"a": 0.25})  # one tranche built, three in cash
+    assert outs[3] == pytest.approx({"a": 1.0, "b": -0.25})
+    assert outs[4] == pytest.approx({"a": 0.75, "b": 0.0})  # the first one rebuilt
+
+
+def test_risk_parity_sleeve_is_long_equities_and_bonds_at_equal_risk():
+    cov = cov_from([0.20, 0.15, 0.05, 0.10], np.eye(4))
+    classes = {"a": "COMM", "b": "EQ", "c": "FI", "d": "FX"}
+    base = FixedPCM()
+    base.next = {"a": -1.0, "b": -0.5}
+    signals = {s: -1.0 for s in "abcd"}  # the sleeve ignores the trend signals
+    w = RiskParitySleevePCM(base, share=0.25, classes=classes).create_targets(
+        signals, cov
+    )
+    assert w["a"] == pytest.approx(-0.75)
+    assert "d" not in w  # currencies are not in the sleeve
+    sleeve_b, sleeve_c = w["b"] + 0.75 * 0.5, w["c"]
+    assert sleeve_c > 0 and sleeve_b * 0.15 == pytest.approx(sleeve_c * 0.05)
+    trend_vol = np.hypot(1.0 * 0.20, 0.5 * 0.15)
+    sleeve_vol = np.hypot(sleeve_b * 0.15, sleeve_c * 0.05)
+    assert sleeve_vol == pytest.approx(0.25 * trend_vol)

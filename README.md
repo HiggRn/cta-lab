@@ -5,11 +5,11 @@ Multi-asset CTA trend-following backtest system.
 ## Layout
 
 - `common.py`: core interfaces: `Bar`, `Indicator`, `HistoryContext`, `AlphaModel`, `RiskModel`, `PortfolioConstructionModel` (PCM), `Strategy`
-- `indicators/`: reusable indicators (`Momentum`, `MonthlyReturn`, `YangZhangVolatility`, `EwmaVolatility`, `TrendProfile`), imported as `from indicators import ...`
+- `indicators/`: reusable indicators (`Momentum`, `MonthlyReturn`, `YangZhangVolatility`, `EwmaVolatility`, `TrendProfile`, `TrendTStat`), imported as `from indicators import ...`
 - `panel.py`: `Panel`, loads raw data + asset map into the daily timeline
 - `engine.py`: `run_backtest()`, runs a `Strategy` over a `Panel`
 - `baselines.py`: the course baselines and benchmarks (`BASELINE_STRATEGIES`) and their models
-- `strategy.py`: the team's strategies (`USER_STRATEGIES`): the daily TSMOM example, the same example with Yang-Zhang risk and correlation-adjusted sizing, asset-class risk parity from the midterm report, the daily TSMOM at 11% vol, the EWMA vol target with a vol floor, a 50/50 mix of the two, and the trend profile strategies (our best results after costs)
+- `strategy.py`: the team's strategies (`USER_STRATEGIES`): the daily TSMOM example, the same example with Yang-Zhang risk and correlation-adjusted sizing, asset-class risk parity from the midterm report, the daily TSMOM at 11% vol, the EWMA vol target with a vol floor, a 50/50 mix of the two, the trend profile strategies (our best in-sample results after costs) and KV1 / KV2
 - `main.py`: the entry point. Wires data paths, cost model and params, runs every baseline and user strategy and calls the analysis
 - `oos/`: out-of-sample code, parked for now (see `oos/README.md`). Not used by `main.py` or the tests in `tests/`
 - `analysis.py`: performance statistics, regressions, benchmark and SG Trend comparison, risk model check, lookback study, lag profile, asset-class and autocorrelation statistics
@@ -63,12 +63,15 @@ Current models (`common.py` unless noted):
 | Alpha | `DailyTsmomAlpha` (strategy) | sign of the return over the last 252 daily bars |
 | Alpha | `TrendProfileAlpha` (strategy) | average capped z-score of four pieces of the last 12 months (months 1, 2-3, 4-6, 7-12) minus the z-score of months 13-15. Optionally a constant per asset class |
 | Alpha | `LearnedProfileAlpha` (strategy) | the same five pieces, with their weights and a lean per asset class re-estimated every January by least squares on past data only |
+| Alpha | `NoShortAlpha` (strategy) | wraps an alpha and sets short signals to 0 in equity index futures |
+| Alpha | `TrendStrengthAlpha` (strategy) | t-stat of the 252-bar return (log return over its own daily vol x sqrt(252)), capped at +-1 |
 | Risk | `SampleCovarianceRiskModel` | covariance of the last `risk_lookback` daily returns |
 | Risk | `ExpandingMonthlyRiskModel` (baselines) | covariance of all past monthly returns, at least 36 months. Use `risk_lookback=None` |
 | Risk | `EwmaMonthlyRiskModel` (baselines) | EWMA covariance of monthly returns (12-month half-life), reacts faster |
 | Risk | `VolFloorRiskModel` (strategy) | wraps a risk model and raises any vol below 3%/yr to 3%, keeping correlations |
 | Risk | `YangZhangRiskModel` (strategy) | sample correlations of the last `risk_lookback` daily returns, with each vol replaced by its Yang-Zhang estimate (open, high, low, close). Needs `update(bars)` on every bar |
 | Risk | `EwmaDailyRiskModel` (baselines) | Moskowitz, Ooi and Pedersen (2012): EWMA of daily returns, centre of mass 60 days, diagonal |
+| Risk | `EwmaVolRiskModel` (strategy) | sample correlations of the last `risk_lookback` daily returns, with EWMA vols (centre of mass 60 days) on the diagonal |
 | PCM | `InverseVolPCM` | weight = signal / vol, scaled so gross exposure equals `target_gross_leverage` |
 | PCM | `CorrelationAdjustedPCM` (strategy) | weight = signal / (vol x sum of the symbol's positive correlations, itself included), scaled to `target_gross_leverage`. Contracts that move with many others get less |
 | PCM | `EqualRiskPCM` | signal x 40% / vol, then 1/N; flat until 10 symbols are live |
@@ -76,6 +79,9 @@ Current models (`common.py` unless noted):
 | PCM | `TradeBufferPCM` (strategy) | wraps a PCM: no-trade band of +-20% of each target; trades only to the band's edge |
 | PCM | `PositionCapPCM` (strategy) | wraps a PCM: no contract above +-100% of capital |
 | PCM | `AssetClassBudgetPCM` (strategy) | wraps a PCM: equal stand-alone risk per asset class (COMM, EQ, FI, FX) |
+| PCM | `TranchePCM` (strategy) | wraps a PCM and holds the average of its last four targets, i.e. four tranches of a quarter each |
+| PCM | `RiskParitySleevePCM` (strategy) | wraps a PCM: 25% of the risk goes to a long-only book of equity and bond futures, equal risk per class |
+| Schedule | `TrancheSchedule` (strategy) | rebalances on days 0, 5, 10 and 15 of every 21-trading-day cycle, one tranche at a time |
 | Strategy | `SleeveMixStrategy` (strategy) | runs several strategies side by side and holds a fixed-weight mix of their targets |
 
 
@@ -142,6 +148,65 @@ No look-ahead was found: signals from day `t`'s close trade at day `t+1`'s close
 2. **Concentration.** The daily 11% vol strategy averages 3.8x gross leverage (6.9x at most) and has no position cap. Correlation-adjusted sizing favours contracts that move alone, so one contract exceeds 100% of capital on 314 of 9,893 days (FX and US bonds, mostly while few contracts were live) and reached 208% (British pound, June 1977, 19 live contracts). With inverse-vol sizing the largest was 88%.
 3. **Flat trading cost.** 1.5 bps per unit traded is applied to every contract and every year back to 1976, and the daily 11% vol strategy turns over 50 times a year. Its net Sharpe is 1.30 at this cost, 1.17 at 3x, 1.05 at 5x and 0.73 at 10x (trading cost only).
 4. **The trend profile was designed on this sample.** Its pieces, the cap and the fade were fixed before the engine run, but the fade was chosen after looking at the 1976-2014 lag profile. The learned-weights run (1.57) is the fairer in-sample number. Splitting the 12 months into pieces only helped before 1995: against the daily 11% vol strategy the four pieces make 1.76 against 1.34 in 1976-94 and 1.20 against 1.25 in 1995-2014, so after 1995 the gain is the fade (1.43) and the premium (1.57). In 2005-2014 the trend profile makes 1.01 (1.16 with the premium, 0.93 for the daily 11% vol strategy), so expect the kind of drop seen in caveat 1. It has not been run on `data/oos` yet.
+
+### KV1 and KV2
+
+Two versions of the plain 12-month TSMOM book with a few simple changes. The plain book is the one from the lectures: sign of the 12-month return, size 1/vol, scale the book to 11% ex-ante vol, rebuild it every 21 trading days.
+
+KV1 changes four things:
+
+1. **No shorts in equity index futures.** Stock indices drift up over time and bounce hard after selloffs, so the short side of the 12-month signal mostly loses there. Equity longs stay, and bonds, commodities and currencies can still go short (`NoShortAlpha`).
+2. **Faster vol.** Each contract's vol is an EWMA of daily returns with a 60-day centre of mass, as in Moskowitz, Ooi and Pedersen (2012), instead of the 12-month vol. Correlations still come from the last 12 months (`EwmaVolRiskModel`).
+3. **3% vol floor**, the same one as in the daily 11% vol strategy (`VolFloorRiskModel`). Without it 1/vol sizing puts about half the gross exposure into Eurodollar and short sterling, more than 20x capital in Eurodollar alone, and financing costs about 3% a year in-sample and over 5% after 2015.
+4. **Four tranches.** The book is split into four parts with a quarter of the capital each, and each part is rebuilt every 21 trading days, a week after the one before (`TrancheSchedule`, `TranchePCM`). With one book a month the result depends a lot on which day of the month it trades.
+
+KV2 is KV1 plus two more:
+
+5. **Trend strength instead of the sign.** The signal is the 12-month t-stat capped at +-1 (`TrendStrengthAlpha`). A clear trend still gets a full position, a weak or noisy one gets a smaller one.
+6. **Risk-parity sleeve.** Lecture 11 lists risk parity as an extra source of core returns. A quarter of the risk goes to a long-only book of every equity and bond future, sized 1/vol with equal risk for the two classes (`RiskParitySleevePCM`). This part is not trend following: it earns the equity and bond premium, which helps in the years trend does badly.
+
+These numbers are from the current `main.py` setup, not the one behind the table above: one run over the full sample (`data/full_raw`, 1969 to Jun-2025) with 2 bps per unit traded, 2 bps x 4 rolls a year, 50 bps a year financing on gross leverage above 1x and `exec_lag=2`. In-sample is Jun-1976 to Dec-2014 and out-of-sample Jan-2015 to Jun-2025. Returns, vol and Sharpe ratios are annualised from monthly returns, before (gross) and after (net) costs. Vol is the same either way to one decimal. Turnover and costs are per year, and leverage is average gross exposure. The other rows were rerun the same way.
+
+In-sample, Jun-1976 to Dec-2014:
+
+| Strategy | Gross ret | Net ret | Vol | Gross SR | Net SR | Max DD | Turnover | Leverage | Costs (bps) |
+|---|---|---|---|---|---|---|---|---|---|
+| TSMOM 12m (baseline) | 10.2% | 8.6% | 11.2% | 0.91 | 0.77 | -30% | 8.7 | 3.3 | 159 |
+| Daily TSMOM 11% vol (floor, buffer) | 18.2% | 15.4% | 12.2% | 1.49 | 1.27 | -19% | 49.8 | 3.8 | 273 |
+| Trend profile | 23.9% | 21.4% | 13.0% | 1.84 | 1.65 | -10% | 58.8 | 3.0 | 246 |
+| **KV1** | **15.9%** | **13.9%** | **11.9%** | **1.33** | **1.17** | **-20%** | **15.3** | **3.6** | **190** |
+| **KV2** | **17.1%** | **15.4%** | **12.4%** | **1.38** | **1.24** | **-22%** | **12.7** | **3.4** | **173** |
+
+Out-of-sample, Jan-2015 to Jun-2025:
+
+| Strategy | Gross ret | Net ret | Vol | Gross SR | Net SR | Max DD | Turnover | Leverage | Costs (bps) |
+|---|---|---|---|---|---|---|---|---|---|
+| TSMOM 12m (baseline) | -0.1% | -2.6% | 11.1% | -0.01 | -0.23 | -43% | 13.8 | 4.5 | 244 |
+| Daily TSMOM 11% vol (floor, buffer) | 1.7% | -1.3% | 12.6% | 0.13 | -0.10 | -35% | 55.0 | 4.0 | 297 |
+| Trend profile | 1.9% | -0.9% | 11.8% | 0.16 | -0.08 | -30% | 71.9 | 3.2 | 284 |
+| **KV1** | **2.3%** | **0.1%** | **11.8%** | **0.20** | **0.01** | **-35%** | **17.5** | **4.0** | **220** |
+| **KV2** | **3.4%** | **1.5%** | **11.5%** | **0.30** | **0.13** | **-29%** | **14.7** | **3.6** | **193** |
+
+One change at a time, net SR:
+
+| Step | 1976-2014 | 2015-2025 |
+|---|---|---|
+| Plain book (sign, 12-month vol, one book every 21 days) | 0.96 | -0.27 |
+| + no equity shorts | 0.97 | -0.20 |
+| + EWMA vol | 0.99 | -0.26 |
+| + 3% vol floor | 1.14 | -0.04 |
+| + four tranches = **KV1** | 1.17 | 0.01 |
+| + trend strength | 1.18 | 0.01 |
+| + risk-parity sleeve = **KV2** | 1.24 | 0.13 |
+
+- KV2 has the best 2015-2025 net Sharpe of the trend strategies in the repo. Next are the daily YZ + corr adjusted example (0.06, at 1x gross) and the trend profile with the equity/bond premium (0.01). The static long benchmark did better than all of them (0.24). In-sample the trend profile is still well ahead (1.65 against 1.24), so the two are good at different things.
+- Against the baseline the in-sample gain is clear (p < 0.01 for both), the out-of-sample one is not: p = 0.20 for KV1 and 0.11 for KV2. Ten years is short, and 2015-2025 was a bad decade for trend.
+- Net SR by sub-period: KV1 1.27 (1976-89), 1.43 (1990-99), 1.17 (2000-07), 0.67 (2008-14), -0.13 (2015-19), 0.15 (2020-25); KV2 1.30, 1.44, 1.25, 0.86, 0.07, 0.18. The baseline: 1.05, 0.94, 0.95, 0.18, -0.60, 0.02.
+- Turnover is low (13-18 a year against 50-72 for the daily 11% vol and trend profile strategies), so trading costs are small. Financing is still most of the cost: 120-155 bps a year at 3.4-4x gross. Without it (trading and roll costs only) net SR is 1.28 / 0.14 for KV1 and 1.34 / 0.24 for KV2, against 0.87 / -0.07 for the baseline.
+- With every cost doubled: KV1 1.01 / -0.18, KV2 1.10 / -0.04.
+- Biggest helpers: the vol floor (mostly by cutting financing), dropping equity shorts and, out-of-sample, the sleeve. EWMA vol and trend strength add little on their own, and EWMA vol is -0.06 out-of-sample at its step.
+- Because of the sleeve KV2 is more net long: its average net exposure is 1.5x capital, against 0.6-0.9x for KV1. No single position goes above 1.35x capital in either.
+- Both pass `test_no_lookahead`.
 
 ## Writing an alpha
 
