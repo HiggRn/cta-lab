@@ -1,9 +1,13 @@
+import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from common import Bar
+
+COLUMNS = ["date", "open", "high", "low", "close", "volume", "oi"]
+PRICE_COLUMNS = ["open", "high", "low", "close"]
 
 
 class Panel:
@@ -13,39 +17,65 @@ class Panel:
 
     def __init__(
         self,
-        raw_dirs: Path | list[Path],
+        raw_dir: Path,
         asset_map_path: Path,
-        dropped_symbols: set[str] = set(),
+        dropped_symbols: frozenset[str] = frozenset(),
+        successors: dict[str, str] | None = None,
+        roll_fixes: dict[str, list[str]] | None = None,
     ) -> None:
-        if isinstance(raw_dirs, (str, Path)):
-            raw_dirs = [raw_dirs]
+        successors = successors or {}
+        roll_fixes = roll_fixes or {}
 
-        self.asset_map = pd.read_csv(asset_map_path, index_col="ID")
+        # keep_default_na=False: ID "NA" is not read as NaN
+        self.asset_map = pd.read_csv(
+            asset_map_path, index_col="ID", keep_default_na=False
+        )
+        tradable = set(self.asset_map.index) - set(dropped_symbols)
+        wanted = tradable | set(successors.values())
 
-        raw: dict[str, list[pd.DataFrame]] = {}
-        for d in raw_dirs:
-            for f in sorted(Path(d).glob("*.csv")):
-                symbol = f.stem
-                if symbol in dropped_symbols:
-                    continue
-                df = pd.read_csv(f, index_col=0, parse_dates=True).rename(
-                    columns={
-                        "Open": "open",
-                        "High": "high",
-                        "Low": "low",
-                        "Close": "close",
-                        "Volume": "volume",
-                        "OpenInterest": "oi",
-                    }
+        frames: dict[str, pd.DataFrame] = {}
+        for f in sorted(Path(raw_dir).iterdir()):
+            symbol = re.sub("_RAD$", "", f.stem, flags=re.I)
+            if f.suffix.lower() != ".csv" or symbol not in wanted:
+                continue
+            df = pd.read_csv(f, header=None, names=COLUMNS, index_col="date")
+            df.index = pd.to_datetime(df.index, format="%m/%d/%Y")
+            df = df.sort_index()
+            df = df[~df.index.duplicated(keep="last")]
+            # all-zero OHLC rows are placeholders for days the symbol did not exist or trade
+            df = df[df["close"].notna() & ~(df[PRICE_COLUMNS] == 0).all(axis=1)]
+            if not (df["close"] > 0).all():
+                raise ValueError(
+                    f"{symbol}: non-positive close after dropping placeholder rows"
                 )
-                raw.setdefault(symbol, []).append(df)
+            frames[symbol] = df
 
-        frames = {
-            s: pd.concat(dfs)
-            .sort_index()
-            .loc[lambda x: ~x.index.duplicated(keep="last")]
-            for s, dfs in raw.items()
-        }
+        missing = wanted - set(frames)
+        if missing:
+            raise FileNotFoundError(f"no data file in {raw_dir} for {sorted(missing)}")
+
+        # Neutralise known contract-switch gaps: rescale every bar from the switch day on, so that day's
+        # close-to-close return is zero and every later return is unchanged. Raises if the date is missing.
+        for symbol, dates in roll_fixes.items():
+            for d in pd.to_datetime(dates):
+                prev_close = (
+                    frames[symbol]["close"].loc[: d - pd.Timedelta(days=1)].iloc[-1]
+                )
+                frames[symbol].loc[d:, PRICE_COLUMNS] *= (
+                    prev_close / frames[symbol].loc[d, "close"]
+                )
+
+        # Chain each retired big contract with its mini. Volume and open interest are appended unscaled.
+        for big, mini in successors.items():
+            last = frames[big].index[-1]
+            after = frames[mini].loc[frames[mini].index > last].copy()
+            if after.empty:
+                continue
+            anchor = frames[mini]["close"].loc[:last].iloc[-1]
+            after[PRICE_COLUMNS] *= frames[big]["close"].iloc[-1] / anchor
+            frames[big] = pd.concat([frames[big], after])
+
+        frames = {s: frames[s] for s in sorted(tradable)}
         self.symbols = sorted(frames.keys())
         self.all_dates = pd.DatetimeIndex(
             sorted(set().union(*[df.index for df in frames.values()]))

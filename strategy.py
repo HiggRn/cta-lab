@@ -1,5 +1,4 @@
 from collections import deque
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -20,6 +19,7 @@ from common import (
     Strategy,
     VolTargetPCM,
 )
+from config import ASSET_MAP_PATH
 from indicators import Momentum, TrendProfile, YangZhangVolatility
 
 # Example Strategy: Daily 252d TSMOM
@@ -192,7 +192,9 @@ class TradeBufferPCM(PortfolioConstructionModel):
         final = {}
         for s, target in targets.items():
             band = self.buffer * abs(target)
-            final[s] = float(np.clip(self._held.get(s, 0.0), target - band, target + band))
+            final[s] = float(
+                np.clip(self._held.get(s, 0.0), target - band, target + band)
+            )
         self._held = final
         return final
 
@@ -216,7 +218,9 @@ class DailyTsmomVolTargetStrategy(ModularStrategy):
             risk_model=VolFloorRiskModel(
                 SampleCovarianceRiskModel(periods_per_year=252, min_periods=20)
             ),
-            pcm=TradeBufferPCM(VolTargetPCM(CorrelationAdjustedPCM(1.0), target_vol=0.11)),
+            pcm=TradeBufferPCM(
+                VolTargetPCM(CorrelationAdjustedPCM(1.0), target_vol=0.11)
+            ),
             schedule=DailySchedule(),
             risk_lookback=60,
         )
@@ -281,11 +285,11 @@ class MixedSpeedStrategy(SleeveMixStrategy):
 
 # Asset-class risk parity (midterm report, Section 10, idea 3)
 
-ASSET_MAP_PATH = Path(__file__).resolve().parent / "data" / "processed" / "AssetMapCsv.csv"
-
 
 def _asset_classes() -> dict[str, str]:
-    return pd.read_csv(ASSET_MAP_PATH, index_col="ID")["AssetClass"].to_dict()
+    return pd.read_csv(ASSET_MAP_PATH, index_col="ID", keep_default_na=False)[
+        "AssetClass"
+    ].to_dict()
 
 
 def _dense_cov(cov: pd.DataFrame, names: list[str]) -> np.ndarray:
@@ -304,7 +308,9 @@ class AssetClassBudgetPCM(PortfolioConstructionModel):
     size stays about the same; an outer VolTargetPCM sets the final level.
     """
 
-    def __init__(self, base: PortfolioConstructionModel, classes: dict[str, str] | None = None):
+    def __init__(
+        self, base: PortfolioConstructionModel, classes: dict[str, str] | None = None
+    ):
         self.base = base
         self.classes = classes if classes is not None else _asset_classes()
 
@@ -358,7 +364,12 @@ class AssetClassRiskParityStrategy(ModularStrategy):
 # Set once, not searched over: the pieces below, a cap of 2 standard deviations on each
 # piece, equal weights and a per-contract cap of 100% of capital. The fade was read off the
 # lag profile of this same sample, so see README caveat 4 before trusting it.
-FOLLOW = ((0, 21), (21, 63), (63, 126), (126, 252))  # months 1, 2-3, 4-6 and 7-12, in bars
+FOLLOW = (
+    (0, 21),
+    (21, 63),
+    (63, 126),
+    (126, 252),
+)  # months 1, 2-3, 4-6 and 7-12, in bars
 FADE = ((252, 315),)  # months 13-15
 PREMIUM = {"EQ": 0.25, "FI": 0.25}
 MAX_POSITION = 1.0
@@ -394,7 +405,9 @@ class TrendProfileAlpha(AlphaModel):
             ind = self._profile[symbol]
             ind.update(bar)
             if ind.is_ready:
-                signals[symbol] = ind.value + self.premium.get(self.classes.get(symbol), 0.0)
+                signals[symbol] = ind.value + self.premium.get(
+                    self.classes.get(symbol), 0.0
+                )
         return signals
 
 
@@ -494,7 +507,9 @@ class TrendProfileStrategy(ModularStrategy):
                 SampleCovarianceRiskModel(periods_per_year=252, min_periods=20)
             ),
             pcm=PositionCapPCM(
-                TradeBufferPCM(VolTargetPCM(CorrelationAdjustedPCM(1.0), target_vol=0.11))
+                TradeBufferPCM(
+                    VolTargetPCM(CorrelationAdjustedPCM(1.0), target_vol=0.11)
+                )
             ),
             schedule=DailySchedule(),
             risk_lookback=60,

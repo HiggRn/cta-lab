@@ -4,11 +4,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from main import ASSET_MAP_PATH, DROPPED_SYMBOLS
+from config import (
+    ASSET_MAP_PATH,
+    DROPPED_SYMBOLS,
+    FULL_RAW_DIR,
+    OUTPUT_DIR,
+    ROLL_FIXES,
+    SUCCESSORS,
+)
 
-FULL_RAW_DIR = Path("./data/full_raw")
-IS_RAW_DIR = Path("./data/raw")  # used only for the IS price comparison
-OUT_PATH = Path("./outputs/data_audit.csv")
+IS_RAW_DIR = Path(
+    "./data/raw"
+)  # original course data, only for the IS price comparison; skipped once deleted
+OUT_PATH = OUTPUT_DIR / "data_audit.csv"
 IS_END = pd.Timestamp("2014-12-31")
 
 COLUMNS = ["date", "open", "high", "low", "close", "volume", "oi"]
@@ -40,6 +48,7 @@ print(
 )
 print(f"tradable universe ({len(universe)} symbols)")
 
+closes = {}
 rows = {}
 for sym, path in files.items():
     row = {
@@ -88,6 +97,7 @@ for sym, path in files.items():
 
     clean = df[valid]
     close = clean["close"]
+    closes[sym] = close
     row["valid_rows"] = len(clean)
     row["first_date"] = close.index[0]
     row["last_date"] = close.index[-1]
@@ -212,3 +222,22 @@ print(
 OUT_PATH.parent.mkdir(exist_ok=True)
 audit.to_csv(OUT_PATH)
 print(f"\nfull audit saved to {OUT_PATH}")
+
+print("\n== Successor chaining check ==")
+for big, mini in SUCCESSORS.items():
+    join = closes[big].index[-1]
+    overlap = closes[big].index.intersection(closes[mini].index)
+    corr = closes[big][overlap].pct_change().corr(closes[mini][overlap].pct_change())
+    print(
+        f"{big} <- {mini}: join {join.date()} | mini has a bar on join day: {join in closes[mini].index} "
+        f"| overlap days: {len(overlap)} | overlap return corr: {corr:.4f} | mini last bar: {closes[mini].index[-1].date()}"
+    )
+
+for sym, dates in ROLL_FIXES.items():
+    for d in pd.to_datetime(dates):
+        print(f"\n== {sym} raw close around {d.date()} ==")
+        print(
+            closes[sym]
+            .loc[d - pd.Timedelta(days=7) : d + pd.Timedelta(days=7)]
+            .to_string()
+        )

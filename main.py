@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pandas as pd
 
 from analysis import (
@@ -15,19 +13,20 @@ from analysis import (
     strategy_summary_table,
 )
 from baselines import BASELINE_STRATEGIES
+from config import (
+    ASSET_MAP_PATH,
+    DROPPED_SYMBOLS,
+    FACTOR_DIR,
+    FULL_RAW_DIR,
+    OUTPUT_DIR,
+    ROLL_FIXES,
+    SG_TREND_PATH,
+    SUCCESSORS,
+)
 from engine import FuturesCostModel, run_backtest
 from panel import Panel
 from strategy import USER_STRATEGIES
 
-RAW_DIR = Path("./data/raw")
-ASSET_MAP_PATH = Path("./data/processed/AssetMapCsv.csv")
-SG_TREND_PATH = Path("./data/processed/Lecture3_livedata.xlsx")
-FACTOR_DIR = Path("./data/external")
-OUTPUT_DIR = Path("./outputs")
-
-# duplicates: ES, SC -> SP and EN -> ND; YM duplicates ZD; bad data: BC, BG, ZH, FF.
-# RL stops in 2008, so we keep its mini contract ER instead (dropping both left no Russell 2000 at all).
-DROPPED_SYMBOLS = {"EN", "ES", "SC", "BC", "BG", "ZH", "FF", "RL", "YM"}
 SAMPLE_START = "1976-02"
 SAMPLE_END = "2014-12"
 
@@ -39,9 +38,11 @@ def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     panel = Panel(
-        raw_dirs=RAW_DIR,
+        raw_dir=FULL_RAW_DIR,
         asset_map_path=ASSET_MAP_PATH,
         dropped_symbols=DROPPED_SYMBOLS,
+        successors=SUCCESSORS,
+        roll_fixes=ROLL_FIXES,
     )
 
     cost_model = FuturesCostModel(
@@ -55,7 +56,9 @@ def main() -> None:
     # Combine course baselines with user custom strategies
     all_strategies = {**BASELINE_STRATEGIES, **USER_STRATEGIES}
     results = {
-        name: run_backtest(panel=panel, strategy=cls(), cost_model=cost_model, exec_lag=2)
+        name: run_backtest(
+            panel=panel, strategy=cls(), cost_model=cost_model, exec_lag=2
+        )
         for name, cls in all_strategies.items()
     }
     # Common comparison window: the latest first full month across all strategies
@@ -65,7 +68,8 @@ def main() -> None:
     )
     START = str(common_start)
     monthly = {
-        name: monthly_returns(res).loc[START:SAMPLE_END] for name, res in results.items()
+        name: monthly_returns(res).loc[START:SAMPLE_END]
+        for name, res in results.items()
     }
 
     # Strategy Performance & Cost Breakdown Table
@@ -80,7 +84,9 @@ def main() -> None:
     months = [(a, a + 21) for a in range(0, 378, 21)]
     profile = lag_profile(panel, months, start=START, end=SAMPLE_END)
     profile.to_csv(OUTPUT_DIR / "lag_profile.csv")
-    print("\n== Lag Profile: gross Sharpe of trading each past month alone (bars ago) ==")
+    print(
+        "\n== Lag Profile: gross Sharpe of trading each past month alone (bars ago) =="
+    )
     print(profile.round(2).to_string())
 
     # Factor & Benchmark Alpha Attribution
@@ -90,7 +96,9 @@ def main() -> None:
 
     print(f"\n== Alpha Attribution for [{target_name}] ==")
     print(
-        alpha_table(target_ret, benchmarks)[["alpha", "t_alpha", "R2"]].round(3).to_string()
+        alpha_table(target_ret, benchmarks)[["alpha", "t_alpha", "R2"]]
+        .round(3)
+        .to_string()
     )
 
     # Crisis Alpha: Market Smile & Regime Returns
