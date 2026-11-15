@@ -188,6 +188,11 @@ def load_benchmarks(
 ) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
     """Build standard Lecture 3 benchmark suite and return (benchmarks_dict, factors_df)."""
     factors = load_factors(factor_dir).reindex(static_ret.index)
+    if factors["Mkt-RF"].isna().any():
+        raise ValueError(
+            f"Fama-French data does not cover {static_ret.index[0]} to {static_ret.index[-1]}; "
+            f"delete the cached files in {factor_dir} to download them again"
+        )
 
     # US 30Y T-Bond futures monthly return for the 60/40 benchmark
     us_px = panel.close_df["US"].dropna()
@@ -347,17 +352,20 @@ def _avg_within_across_corr(
 
 
 def correlation_structure(
-    panel: Panel, result: BacktestResult, end: str | None = None
+    panel: Panel,
+    result: BacktestResult,
+    start: str | None = None,
+    end: str | None = None,
 ) -> pd.DataFrame:
     """Compare average pairwise correlation within and across asset classes for
-    Passive Buy-and-Hold vs. Strategy active position returns (Lecture 3), using data up to `end`.
+    Passive Buy-and-Hold vs. Strategy active position returns (Lecture 3), using data from `start` to `end`.
     """
     classes = panel.asset_map["AssetClass"]
 
     # Monthly passive asset returns vs strategy component returns
-    passive_daily = panel.observed_returns.loc[:end]
+    passive_daily = panel.observed_returns.loc[start:end]
     strat_comp_daily = (
-        np.sign(result.positions.loc[:end]).replace(0.0, np.nan) * passive_daily
+        np.sign(result.positions.loc[start:end]).replace(0.0, np.nan) * passive_daily
     )
 
     passive_m = (1.0 + passive_daily).groupby(passive_daily.index.to_period("M")).prod(
@@ -395,7 +403,9 @@ def lag_profile(
     """
     close = panel.close_df.loc[:end]
     logs = {s: np.log(close[s].dropna()) for s in close}
-    vol = {s: x.diff().ewm(span=vol_span, min_periods=20).std() for s, x in logs.items()}
+    vol = {
+        s: x.diff().ewm(span=vol_span, min_periods=20).std() for s, x in logs.items()
+    }
 
     def on_panel(per_symbol: dict[str, pd.Series]) -> pd.DataFrame:
         # each contract's own-bar series, carried over the days it did not trade
@@ -411,7 +421,9 @@ def lag_profile(
     for a, b in windows:
         score = on_panel(
             {
-                s: ((x.shift(a) - x.shift(b)) / (vol[s] * np.sqrt(b - a))).clip(-cap, cap)
+                s: ((x.shift(a) - x.shift(b)) / (vol[s] * np.sqrt(b - a))).clip(
+                    -cap, cap
+                )
                 for s, x in logs.items()
             }
         )
@@ -479,9 +491,7 @@ def risk_model_bias(
                 q = cov.reindex(index=w.index, columns=w.index).fillna(0.0).to_numpy()
                 if diagonal:
                     q = np.diag(np.diag(q))
-                vols[nxt] = np.sqrt(
-                    max(float(w.to_numpy() @ q @ w.to_numpy()), 0.0)
-                )
+                vols[nxt] = np.sqrt(max(float(w.to_numpy() @ q @ w.to_numpy()), 0.0))
 
             pred_vol = pd.Series(vols)
             z = (monthly[strat_name] / (pred_vol / np.sqrt(12.0))).dropna()
@@ -503,15 +513,16 @@ def risk_model_bias(
 def plot_strategies(
     results: dict[str, BacktestResult],
     sample_start: str | None = None,
+    sample_end: str | None = None,
 ) -> None:
     """Plot cumulative log-wealth and underwater drawdown curves for compared strategies."""
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
 
     for name, res in results.items():
         pnl = (
-            res.net_pnl.loc[sample_start:]
+            res.net_pnl.loc[sample_start:sample_end]
             if sample_start
-            else res.net_pnl.loc[first_trade_date(res) :]
+            else res.net_pnl.loc[first_trade_date(res) : sample_end]
         )
         pnl = pnl.fillna(0.0)
         nav = (1.0 + pnl).cumprod()

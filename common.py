@@ -75,7 +75,12 @@ class HistoryContext:
 
     @property
     def active_universe(self) -> set[str]:
-        """Symbols that have started trading on or before today and have not permanently delisted."""
+        """Symbols that have started trading and whose final bar is not in the past.
+
+        The dataset's last bar is taken as the delisting date, so a symbol drops out the day after
+        its last bar. This is reference data from the future, but a contract is never dropped before
+        its last bar: truncating the data at any date leaves everything before the cut unchanged.
+        """
         idx = self._current_idx
         active_mask = (self._first_idx <= idx) & (idx <= self._last_idx)
         return {
@@ -240,7 +245,8 @@ class ModularStrategy(Strategy):
             return None
 
         self._signals.update(self.alpha_model.update(bars, context))
-        # OOS diagnostic fix: remove signals for inactive contracts.
+        # Drop signals of contracts whose final bar has passed before the PCM sizes the book,
+        # otherwise their risk still counts in vol targeting and scales the live contracts down
         active = context.active_universe
         self._signals = {
             symbol: signal

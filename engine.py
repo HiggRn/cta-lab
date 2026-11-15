@@ -176,23 +176,24 @@ def run_backtest(
     last_w_vec = np.zeros(n_assets)
 
     for idx, (t, bars) in enumerate(panel.timeline):
-        # OOS diagnostic fix: remove positions after their final observed bar.
-        # This uses full-sample information and is NOT a tradable exit rule.
-        expired = (panel.last_valid_idx < idx) & (held != 0.0)
-        if np.any(expired):
-            held[expired] = 0.0
-            for j in np.flatnonzero(expired):
-                pending_targets.pop(int(j), None)
-
         # 1. Promote any order scheduled for today into pending_targets
         if idx in scheduled_orders:
             target_vec = scheduled_orders.pop(idx)
             for j in range(n_assets):
                 pending_targets[j] = float(target_vec[j])
 
+        traded_diff = np.zeros(n_assets)
+
+        # A contract past its final bar can never trade again. Close the position at the last price
+        # (its return is zero from here on) as a normal trade, so turnover and cost are booked,
+        # and drop its pending order. This runs after the promotion above so that no stale order survives.
+        for j in np.flatnonzero(panel.last_valid_idx < idx):
+            traded_diff[j] = -held[j]
+            held[j] = 0.0
+            pending_targets.pop(int(j), None)
+
         # Execute pending targets ONLY for symbols that are tradable today (present in `bars`)
         if pending_targets and bars:
-            traded_diff = np.zeros(n_assets)
             executed_cols = []
             for j, target_val in pending_targets.items():
                 sym = panel.symbols[j]
@@ -205,9 +206,9 @@ def run_backtest(
             for j in executed_cols:
                 del pending_targets[j]
 
-            if np.any(traded_diff != 0.0):
-                turnover[idx] = float(np.abs(traded_diff).sum())
-                t_costs[idx] = cost_model.trading_cost(traded_diff, bars, panel.symbols)
+        if np.any(traded_diff != 0.0):
+            turnover[idx] = float(np.abs(traded_diff).sum())
+            t_costs[idx] = cost_model.trading_cost(traded_diff, bars, panel.symbols)
 
         # 2. Settle today's return, holding costs (roll + financing), and weight drift
         positions[idx] = held
@@ -225,9 +226,11 @@ def run_backtest(
         # 4. Run strategy logic at today's close; schedule resulting orders for idx + exec_lag
         w = strategy.on_bar(bars, context)
         if w is not None:
+            # a strategy may still carry weights for contracts whose final bar has passed (e.g. a cached sleeve)
+            alive = panel.last_valid_idx >= idx
             target = np.zeros(n_assets)
             for s, x in w.items():
-                if s in col and pd.notna(x):
+                if s in col and pd.notna(x) and alive[col[s]]:
                     target[col[s]] = float(x)
             last_w_vec = target
             if idx + exec_lag < n_days:
