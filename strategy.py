@@ -3,7 +3,7 @@ from collections import deque
 import numpy as np
 import pandas as pd
 
-from baselines import EwmaMonthlyRiskModel, MonthlyTsmomAlpha
+from baselines import DailyTsmomAlpha, EwmaMonthlyRiskModel, MonthlyTsmomAlpha
 from common import (
     AlphaModel,
     Bar,
@@ -22,28 +22,9 @@ from common import (
     exante_vol,
 )
 from config import ASSET_MAP_PATH
-from indicators import Momentum, TrendProfile, TrendTStat, YangZhangVolatility
+from indicators import TrendProfile, TrendTStat, YangZhangVolatility
 
-# Example Strategy: Daily 252d TSMOM
-
-
-class DailyTsmomAlpha(AlphaModel):
-    """Sign of 252-bar rolling return for each symbol."""
-
-    def __init__(self, lookback: int = 252):
-        self.lookback = lookback
-        self._momentum: dict[str, Momentum] = {}
-
-    def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
-        signals = {}
-        for symbol, bar in bars.items():
-            if symbol not in self._momentum:
-                self._momentum[symbol] = Momentum(self.lookback)
-            ind = self._momentum[symbol]
-            ind.update(bar)
-            if ind.is_ready:
-                signals[symbol] = float(np.sign(ind.value))
-        return signals
+# Example Strategy: Daily 252d TSMOM (its alpha, DailyTsmomAlpha, is in baselines.py)
 
 
 class YangZhangRiskModel(RiskModel):
@@ -532,11 +513,12 @@ class LearnedProfileStrategy(TrendProfileStrategy):
         super().__init__(LearnedProfileAlpha())
 
 
-# KV1 / KV2: the plain 12-month TSMOM with a few changes (README, "KV1 and KV2")
+# KV1 / KV2: the baseline with a few changes (README, "Final strategies: KV1 and KV2")
 #
-# Start from the simplest book: sign of the 12-month return, 1/vol sizing, scaled to 11%
-# ex-ante vol, rebuilt every 21 trading days. KV1 changes four things and KV2 two more.
-# The vol floor is the 3% one from the daily 11% vol strategy; the rest are below.
+# The baseline (RollingVolTsmomStrategy in baselines.py): sign of the 12-month return,
+# 1/vol sizing, scaled to 11% ex-ante vol, rebuilt every 21 trading days. KV1 changes four
+# things and KV2 two more. The vol floor is the 3% one from the daily 11% vol strategy;
+# the rest are below.
 NO_SHORT = ("EQ",)  # equity indices are never shorted
 CYCLE = 21  # trading days each tranche is held
 TRANCHE_DAYS = (0, 5, 10, 15)  # days of the cycle on which one tranche is rebuilt

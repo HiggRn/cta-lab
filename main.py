@@ -29,7 +29,7 @@ from engine import FuturesCostModel, run_backtest
 from panel import Panel
 from strategy import USER_STRATEGIES
 
-BASELINE_NAME = "TSMOM 12m (baseline)"
+BASELINE_NAME = "Baseline TSMOM"
 STATIC_NAME = "Static benchmark"
 
 OOS_START = "2015-01"
@@ -51,7 +51,7 @@ def main() -> None:
         trading_cost_bps=2,
         roll_cost_bps=2,
         rolls_per_year=4.0,
-        financing_cost_bps=50.0,
+        financing_cost_bps=0.0,  # futures prices already carry the financing
         free_leverage_threshold=1.0,
     )
 
@@ -77,7 +77,7 @@ def main() -> None:
         "In-Sample": ("is", START, SAMPLE_END, True),
         "Out-of-Sample": ("oos", OOS_START, None, False),
     }
-    target_name = "Trend profile"
+    target_name = "KV1"
     months = [(a, a + 21) for a in range(0, 378, 21)]
 
     for label, (tag, start, end, run_sg) in periods.items():

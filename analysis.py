@@ -89,7 +89,8 @@ def strategy_summary_table(
     sample_end: str | None = None,
 ) -> pd.DataFrame:
     """Comprehensive comparison table of net/gross performance, turnover, cost drag (bps/yr),
-    and Sharpe difference p-value against `baseline_name`, over months sample_start..sample_end.
+    average gross leverage, number of positions and net exposure, and Sharpe difference p-value
+    against `baseline_name`, over months sample_start..sample_end.
     """
     net_m = {
         name: monthly_returns(r).loc[sample_start:sample_end]
@@ -122,13 +123,18 @@ def strategy_summary_table(
         trade_bps_yr = per_year(res.trading_costs) * 1e4
         roll_bps_yr = per_year(res.roll_costs) * 1e4
         fin_bps_yr = per_year(res.financing_costs) * 1e4
+        g = monthly_metrics(r_gross)
+        pos = res.positions.loc[start_ts:end_ts]
 
         rows[name] = {
             "Net Avg": m["Avg"],
             "Net Std": m["Std"],
             "Net SR": m["SR"],
-            "Gross SR": monthly_metrics(r_gross)["SR"],
+            "Gross Avg": g["Avg"],
+            "Gross Std": g["Std"],
+            "Gross SR": g["SR"],
             "MaxDD": m["MaxDD"],
+            "Gross MaxDD": g["MaxDD"],
             "Calmar": m["Calmar"],
             "Skew": m["Skew"],
             "Hit rate": m["Hit rate"],
@@ -136,6 +142,9 @@ def strategy_summary_table(
             "TradeCost(bps/yr)": trade_bps_yr,
             "RollCost(bps/yr)": roll_bps_yr,
             "FinCost(bps/yr)": fin_bps_yr,
+            "Leverage": float(pos.abs().sum(axis=1).mean()),
+            "Names": float((pos.abs() > 1e-12).sum(axis=1).mean()),
+            "Imbalance": float(pos.sum(axis=1).mean()),
             "Corr(base)": float(r_net.corr(base_series)),
             "p(SR=base)": sharpe_diff_test(r_net, base_series)["p"],
         }

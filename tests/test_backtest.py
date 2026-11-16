@@ -14,7 +14,7 @@ from panel import Panel
 from strategy import USER_STRATEGIES
 
 STRATEGIES = {**BASELINE_STRATEGIES, **USER_STRATEGIES}
-BASELINE = "TSMOM 12m (baseline)"
+BASELINE = "TSMOM 12m, monthly"
 STATIC = "Static benchmark"
 
 
@@ -23,7 +23,7 @@ def sharpe(r: pd.Series) -> float:
 
 
 def test_baseline_results_without_costs(real_panel):
-    # frictionless, trading at the signal close: the course baseline is about
+    # frictionless, trading at the signal close: the monthly 12m TSMOM is about
     # Sharpe 1.0, the static benchmark about 0.5, and they are barely correlated
     run = lambda name: monthly_returns(
         run_backtest(
@@ -60,7 +60,7 @@ def test_later_exec_lag_does_not_help_a_daily_strategy(real_panel):
     assert sharpe(monthly_returns(second)) <= sharpe(monthly_returns(first)) + 0.05
 
 
-@pytest.mark.parametrize("name", ["Vol target 11%", *USER_STRATEGIES])
+@pytest.mark.parametrize("name", ["Baseline TSMOM", "Vol target 11%", *USER_STRATEGIES])
 def test_no_lookahead(real_panel, full_raw_dir, tmp_path, read_rad, write_rad, name):
     # cut every file mid-month and rebuild the panel on the shorter data
     cutoff = pd.Timestamp("1999-12-15")
