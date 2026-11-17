@@ -77,7 +77,7 @@ def main() -> None:
         "In-Sample": ("is", START, SAMPLE_END, True),
         "Out-of-Sample": ("oos", OOS_START, None, False),
     }
-    target_name = "KV1"
+    target_name = "KV"
     months = [(a, a + 21) for a in range(0, 378, 21)]
 
     for label, (tag, start, end, run_sg) in periods.items():
