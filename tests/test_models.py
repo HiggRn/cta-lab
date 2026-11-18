@@ -3,8 +3,6 @@ import pandas as pd
 import pytest
 
 from baselines import (
-    EwmaDailyRiskModel,
-    EwmaMonthlyRiskModel,
     ExpandingMonthlyRiskModel,
     MonthlyTsmomAlpha,
     StaticLongAlpha,
@@ -25,9 +23,7 @@ from common import (
     WeeklySchedule,
     exante_vol,
 )
-from indicators.momentum import Momentum
 from indicators.monthly_returns import MonthlyReturn
-from strategy import DailyTsmomAlpha
 
 
 def bar(day, close=100.0) -> Bar:
@@ -99,16 +95,6 @@ def test_monthly_return_flag_only_on_first_bar_of_new_month():
     assert flags == [False, False, False, True, False]
 
 
-def test_momentum_is_return_over_last_n_bars():
-    ind = Momentum(lookback=3)
-    for close in [100.0, 110.0, 121.0]:
-        ind.update(bar("2000-01-03", close))
-    assert not ind.is_ready
-    ind.update(bar("2000-01-04", 133.1))
-    assert ind.is_ready
-    assert ind.value == pytest.approx(0.331)
-    ind.update(bar("2000-01-05", 100.0))  # window slides: 110 -> 100
-    assert ind.value == pytest.approx(100.0 / 110.0 - 1.0)
 
 
 # Alpha models
@@ -186,33 +172,15 @@ def test_monthly_risk_models_need_enough_history():
     monthly = pd.DataFrame(rng.normal(0, 0.04, (60, 2)), index=months, columns=["a", "b"])
     daily = daily_with_monthly_returns(monthly)
     daily.loc[: daily.index[-200], "b"] = np.nan  # b has under 36 months of data
-    for model in (ExpandingMonthlyRiskModel(min_months=36), EwmaMonthlyRiskModel(min_months=36)):
+    for model in (ExpandingMonthlyRiskModel(min_months=36),):
         cov = model.covariance(daily)
         assert cov.loc["a", "a"] > 0
         assert np.isnan(cov.loc["b", "b"])
         assert np.isnan(cov.loc["a", "b"])
 
 
-def test_ewma_reacts_faster_than_expanding_to_a_volatility_jump():
-    rng = np.random.default_rng(2)
-    months = pd.period_range("2000-01", periods=84, freq="M")
-    calm = rng.normal(0, 0.01, (60, 1))
-    wild = rng.normal(0, 0.06, (24, 1))
-    monthly = pd.DataFrame(np.vstack([calm, wild]), index=months, columns=["a"])
-    daily = daily_with_monthly_returns(monthly)
-    expanding = ExpandingMonthlyRiskModel().covariance(daily).loc["a", "a"]
-    ewma = EwmaMonthlyRiskModel().covariance(daily).loc["a", "a"]
-    assert ewma > expanding
 
 
-def test_ewma_daily_risk_model_is_diagonal_and_scaled():
-    rng = np.random.default_rng(3)
-    days = pd.bdate_range("2000-01-03", periods=5000)
-    daily = pd.DataFrame(rng.normal(0, 0.01, (5000, 2)), index=days, columns=["a", "b"])
-    cov = EwmaDailyRiskModel().covariance(daily)
-    assert cov.loc["a", "b"] == 0.0 and cov.loc["b", "a"] == 0.0
-    assert np.sqrt(cov.loc["a", "a"]) == pytest.approx(0.01 * np.sqrt(261), rel=0.15)
-    assert np.isnan(EwmaDailyRiskModel().covariance(daily.iloc[:59]).loc["a", "a"])
 
 
 # Portfolio construction

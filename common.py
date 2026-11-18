@@ -1,3 +1,10 @@
+"""Core interfaces and shared building blocks for the backtest.
+
+Defines `Bar`, the `Indicator`, `AlphaModel`, `RiskModel`, `PortfolioConstructionModel`,
+`RebalanceSchedule` and `Strategy` interfaces, the `ModularStrategy` that composes them, the
+engine-fed `HistoryContext`, and common risk models and portfolio-construction models.
+"""
+
 import abc
 from dataclasses import dataclass
 
@@ -7,6 +14,8 @@ import pandas as pd
 
 @dataclass(frozen=True, slots=True)
 class Bar:
+    """One day's open, high, low, close, volume and open interest for a single contract."""
+
     date: pd.Timestamp
     open: float
     high: float
@@ -17,9 +26,12 @@ class Bar:
 
 
 class Indicator(abc.ABC):
+    """Streaming statistic fed one `Bar` at a time through `update`."""
+
     @property
     @abc.abstractmethod
-    def is_ready(self) -> bool: ...
+    def is_ready(self) -> bool:
+        """Whether enough bars have been seen for `value` to be meaningful."""
 
     @property
     @abc.abstractmethod
@@ -32,6 +44,10 @@ class Indicator(abc.ABC):
 
 
 class HistoryContext:
+    """Read-only view of market history up to the current day, handed to strategies by the engine.
+
+    Only data up to and including today is exposed, so strategy code cannot look ahead."""
+
     __slots__ = (
         "_returns_arr",
         "_close_arr",
@@ -65,10 +81,12 @@ class HistoryContext:
 
     @property
     def current_date(self) -> pd.Timestamp:
+        """Date of the bar currently being processed."""
         return self._dates[self._current_idx]
 
     @property
     def prev_date(self) -> pd.Timestamp | None:
+        """Date of the previous bar, or None on the first day."""
         if self._current_idx == 0:
             return None
         return self._dates[self._current_idx - 1]
@@ -129,13 +147,15 @@ class RebalanceSchedule(abc.ABC):
     @abc.abstractmethod
     def should_rebalance(
         self, bars: dict[str, Bar], context: HistoryContext
-    ) -> bool: ...
+    ) -> bool:
+        """Return True if the strategy should rebalance on the current bar."""
 
 
 class DailySchedule(RebalanceSchedule):
     """Rebalance on every trading day."""
 
     def should_rebalance(self, bars: dict[str, Bar], context: HistoryContext) -> bool:
+        """True on every day with at least one bar."""
         return bool(bars)
 
 
@@ -143,6 +163,7 @@ class WeeklySchedule(RebalanceSchedule):
     """Rebalance on the first trading day of each new ISO calendar week."""
 
     def should_rebalance(self, bars: dict[str, Bar], context: HistoryContext) -> bool:
+        """True on the first bar of each new ISO week (never on the first day)."""
         if not bars or context.prev_date is None:
             return False
         t, prev = context.current_date, context.prev_date
@@ -153,6 +174,10 @@ class WeeklySchedule(RebalanceSchedule):
 
 
 class FirstAllTradableDayMonthlySchedule(RebalanceSchedule):
+    """Rebalance once a month, on the first day every active symbol has a bar.
+
+    If that does not happen within `max_wait_days` trading days of the new month, rebalance anyway."""
+
     def __init__(self, max_wait_days: int = 5):
         self.max_wait_days = max_wait_days
         self._pending_ym: tuple[int, int] | None = None
@@ -160,6 +185,7 @@ class FirstAllTradableDayMonthlySchedule(RebalanceSchedule):
         self._wait_days: int = 0
 
     def should_rebalance(self, bars: dict[str, Bar], context: HistoryContext) -> bool:
+        """True once per calendar month, when all active symbols trade or `max_wait_days` have passed."""
         if not bars:
             return False
 
@@ -191,18 +217,24 @@ class FirstAllTradableDayMonthlySchedule(RebalanceSchedule):
 
 
 class AlphaModel(abc.ABC):
+    """Turns new bars into directional signals per symbol (positive long, negative short, 0 flat)."""
+
     @abc.abstractmethod
     def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
         """Return updated signals. Absent symbols keep their previous signal; 0.0 means flat."""
 
 
 class RiskModel(abc.ABC):
+    """Estimates the covariance matrix of returns."""
+
     @abc.abstractmethod
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
         """Annualized covariance matrix, indexed and columned by symbol."""
 
 
 class PortfolioConstructionModel(abc.ABC):
+    """Turns signals and a covariance matrix into target portfolio weights."""
+
     @abc.abstractmethod
     def create_targets(
         self, signals: dict[str, float], cov: pd.DataFrame
@@ -211,6 +243,8 @@ class PortfolioConstructionModel(abc.ABC):
 
 
 class Strategy(abc.ABC):
+    """A trading strategy: given each day's bars, decides when to rebalance and to what weights."""
+
     @abc.abstractmethod
     def on_bar(
         self, bars: dict[str, Bar], context: HistoryContext
@@ -241,6 +275,7 @@ class ModularStrategy(Strategy):
     def on_bar(
         self, bars: dict[str, Bar], context: HistoryContext
     ) -> dict[str, float] | None:
+        """Update signals, drop those of delisted contracts, and on a scheduled day return the PCM's targets."""
         if not bars:
             return None
 
@@ -264,7 +299,13 @@ class ModularStrategy(Strategy):
 
 
 def exante_vol(weights: dict[str, float], cov: pd.DataFrame) -> float:
-    """Annualised ex-ante portfolio volatility sqrt(w' cov w)."""
+    """Annualised ex-ante portfolio volatility sqrt(w' cov w).
+
+    >>> import pandas as pd
+    >>> cov = pd.DataFrame([[0.04, 0.0], [0.0, 0.09]], index=["A", "B"], columns=["A", "B"])
+    >>> round(exante_vol({"A": 1.0, "B": 1.0}, cov), 4)
+    0.3606
+    """
     w = pd.Series(weights)
     q = cov.reindex(index=w.index, columns=w.index).fillna(0.0)
     return float(np.sqrt(max(w @ q @ w, 0.0)))
@@ -278,6 +319,7 @@ class SampleCovarianceRiskModel(RiskModel):
         self.min_periods = min_periods
 
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        """Annualised sample covariance of `returns`."""
         return returns.cov(min_periods=self.min_periods) * self.periods_per_year
 
 
@@ -291,6 +333,7 @@ class EqualRiskPCM(PortfolioConstructionModel):
     def create_targets(
         self, signals: dict[str, float], cov: pd.DataFrame
     ) -> dict[str, float]:
+        """Weight w = signal * position_vol / vol / N for each live symbol; empty when fewer than `min_assets` are live."""
         vol = pd.Series(np.sqrt(np.diag(cov)), index=cov.index)
         live = {
             s: x
@@ -313,6 +356,7 @@ class VolTargetPCM(PortfolioConstructionModel):
     def create_targets(
         self, signals: dict[str, float], cov: pd.DataFrame
     ) -> dict[str, float]:
+        """Scale the base PCM's weights so the ex-ante portfolio volatility equals `target_vol`."""
         targets = self.base_pcm.create_targets(signals, cov)
         if not targets:
             return targets
@@ -331,6 +375,7 @@ class InverseVolPCM(PortfolioConstructionModel):
     def create_targets(
         self, signals: dict[str, float], cov: pd.DataFrame
     ) -> dict[str, float]:
+        """Weights proportional to signal / vol, scaled so gross leverage equals `target_gross_leverage`."""
         vol = pd.Series(np.sqrt(np.diag(cov)), index=cov.index)
         raw = {
             s: sig / vol[s]

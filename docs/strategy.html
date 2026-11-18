@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module strategy</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">strategy</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:///c:/users/ieea_gc_laptop_05/onedrive/desktop/fall%202026/orie%205260/quant_portfolio_project/cta-lab-docs/strategy.py">c:\users\ieea_gc_laptop_05\onedrive\desktop\fall 2026\orie 5260\quant_portfolio_project\cta-lab-docs\strategy.py</a></td></tr></table>
+    <p><span class="code">User&nbsp;strategies:&nbsp;KV,&nbsp;the&nbsp;baseline&nbsp;plus&nbsp;a&nbsp;few&nbsp;changes&nbsp;(no&nbsp;equity&nbsp;shorts,&nbsp;trend-strength&nbsp;signal,&nbsp;EWMA&nbsp;vol&nbsp;with&nbsp;a&nbsp;floor,&nbsp;weekly&nbsp;tranches).</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="numpy.html">numpy</a><br>
+</td><td class="multicolumn"><a href="pandas.html">pandas</a><br>
+</td><td class="multicolumn"></td><td class="multicolumn"></td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor index-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Classes</strong></td></tr>
+    
+<tr><td class="decor index-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl>
+<dt class="heading-text"><a href="common.html#AlphaModel">common.AlphaModel</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="strategy.html#NoShortAlpha">NoShortAlpha</a>
+</dt><dt class="heading-text"><a href="strategy.html#TrendStrengthAlpha">TrendStrengthAlpha</a>
+</dt></dl>
+</dd>
+<dt class="heading-text"><a href="common.html#ModularStrategy">common.ModularStrategy</a>(<a href="common.html#Strategy">common.Strategy</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="strategy.html#KVStrategy">KVStrategy</a>
+</dt></dl>
+</dd>
+<dt class="heading-text"><a href="common.html#PortfolioConstructionModel">common.PortfolioConstructionModel</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="strategy.html#TranchePCM">TranchePCM</a>
+</dt></dl>
+</dd>
+<dt class="heading-text"><a href="common.html#RebalanceSchedule">common.RebalanceSchedule</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="strategy.html#TrancheSchedule">TrancheSchedule</a>
+</dt></dl>
+</dd>
+<dt class="heading-text"><a href="common.html#RiskModel">common.RiskModel</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="strategy.html#EwmaVolRiskModel">EwmaVolRiskModel</a>
+</dt><dt class="heading-text"><a href="strategy.html#VolFloorRiskModel">VolFloorRiskModel</a>
+</dt></dl>
+</dd>
+</dl>
+ <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="EwmaVolRiskModel">class <strong>EwmaVolRiskModel</strong></a>(<a href="common.html#RiskModel">common.RiskModel</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#EwmaVolRiskModel">EwmaVolRiskModel</a>(com:&nbsp;float&nbsp;=&nbsp;60.0,&nbsp;periods_per_year:&nbsp;int&nbsp;=&nbsp;252)<br>
+&nbsp;<br>
+Sample&nbsp;correlations&nbsp;of&nbsp;the&nbsp;returns&nbsp;passed&nbsp;in,&nbsp;with&nbsp;EWMA&nbsp;vols&nbsp;(centre&nbsp;of&nbsp;mass&nbsp;60<br>
+days)&nbsp;on&nbsp;the&nbsp;diagonal.<br>
+&nbsp;<br>
+The&nbsp;12-month&nbsp;vol&nbsp;is&nbsp;slow:&nbsp;after&nbsp;a&nbsp;quiet&nbsp;year&nbsp;it&nbsp;keeps&nbsp;positions&nbsp;big&nbsp;well&nbsp;into&nbsp;a<br>
+selloff.&nbsp;Correlations&nbsp;stay&nbsp;on&nbsp;the&nbsp;full&nbsp;window,&nbsp;where&nbsp;they&nbsp;are&nbsp;better&nbsp;estimated.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="strategy.html#EwmaVolRiskModel">EwmaVolRiskModel</a></dd>
+<dd><a href="common.html#RiskModel">common.RiskModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="EwmaVolRiskModel-__init__"><strong>__init__</strong></a>(self, com: float = 60.0, periods_per_year: int = 252)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="EwmaVolRiskModel-covariance"><strong>covariance</strong></a>(self, returns: pd.DataFrame) -&gt; pd.DataFrame</dt><dd><span class="code">Sample&nbsp;correlations&nbsp;with&nbsp;EWMA&nbsp;volatilities,&nbsp;annualised.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#RiskModel">common.RiskModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="KVStrategy">class <strong>KVStrategy</strong></a>(<a href="common.html#ModularStrategy">common.ModularStrategy</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#KVStrategy">KVStrategy</a>(<br>
+&nbsp;&nbsp;&nbsp;&nbsp;alpha_model:&nbsp;<a href="common.html#AlphaModel">AlphaModel</a>&nbsp;|&nbsp;None&nbsp;=&nbsp;None,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;pcm:&nbsp;<a href="common.html#PortfolioConstructionModel">PortfolioConstructionModel</a>&nbsp;|&nbsp;None&nbsp;=&nbsp;None<br>
+)<br>
+&nbsp;<br>
+12-month&nbsp;sign,&nbsp;no&nbsp;equity&nbsp;shorts,&nbsp;EWMA&nbsp;vol&nbsp;with&nbsp;the&nbsp;3%&nbsp;floor,&nbsp;four&nbsp;weekly<br>
+tranches,&nbsp;11%&nbsp;vol.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="strategy.html#KVStrategy">KVStrategy</a></dd>
+<dd><a href="common.html#ModularStrategy">common.ModularStrategy</a></dd>
+<dd><a href="common.html#Strategy">common.Strategy</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="KVStrategy-__init__"><strong>__init__</strong></a>(
+    self,
+    alpha_model: AlphaModel | None = None,
+    pcm: PortfolioConstructionModel | None = None
+)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Methods inherited from <a href="common.html#ModularStrategy">common.ModularStrategy</a>:<br>
+<dl><dt><a name="KVStrategy-on_bar"><strong>on_bar</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; dict[str, float] | None</dt><dd><span class="code">Update&nbsp;signals,&nbsp;drop&nbsp;those&nbsp;of&nbsp;delisted&nbsp;contracts,&nbsp;and&nbsp;on&nbsp;a&nbsp;scheduled&nbsp;day&nbsp;return&nbsp;the&nbsp;PCM's&nbsp;targets.</span></dd></dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#Strategy">common.Strategy</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="NoShortAlpha">class <strong>NoShortAlpha</strong></a>(<a href="common.html#AlphaModel">common.AlphaModel</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#NoShortAlpha">NoShortAlpha</a>(<br>
+&nbsp;&nbsp;&nbsp;&nbsp;base:&nbsp;<a href="common.html#AlphaModel">AlphaModel</a>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;flat:&nbsp;tuple[str,&nbsp;...]&nbsp;=&nbsp;('EQ',),<br>
+&nbsp;&nbsp;&nbsp;&nbsp;classes:&nbsp;dict[str,&nbsp;str]&nbsp;|&nbsp;None&nbsp;=&nbsp;None<br>
+)<br>
+&nbsp;<br>
+Wraps&nbsp;an&nbsp;alpha&nbsp;and&nbsp;sets&nbsp;short&nbsp;signals&nbsp;to&nbsp;zero&nbsp;in&nbsp;the&nbsp;asset&nbsp;classes&nbsp;in&nbsp;`flat`.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="strategy.html#NoShortAlpha">NoShortAlpha</a></dd>
+<dd><a href="common.html#AlphaModel">common.AlphaModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="NoShortAlpha-__init__"><strong>__init__</strong></a>(
+    self,
+    base: AlphaModel,
+    flat: tuple[str, ...] = ('EQ',),
+    classes: dict[str, str] | None = None
+)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="NoShortAlpha-update"><strong>update</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; dict[str, float]</dt><dd><span class="code">Base&nbsp;signals&nbsp;with&nbsp;shorts&nbsp;set&nbsp;to&nbsp;0&nbsp;in&nbsp;the&nbsp;asset&nbsp;classes&nbsp;in&nbsp;`flat`.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#AlphaModel">common.AlphaModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="TranchePCM">class <strong>TranchePCM</strong></a>(<a href="common.html#PortfolioConstructionModel">common.PortfolioConstructionModel</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#TranchePCM">TranchePCM</a>(base:&nbsp;<a href="common.html#PortfolioConstructionModel">PortfolioConstructionModel</a>,&nbsp;parts:&nbsp;int&nbsp;=&nbsp;4)<br>
+&nbsp;<br>
+Wraps&nbsp;a&nbsp;PCM&nbsp;and&nbsp;holds&nbsp;the&nbsp;average&nbsp;of&nbsp;its&nbsp;last&nbsp;`parts`&nbsp;targets.<br>
+&nbsp;<br>
+With&nbsp;`<a href="#TrancheSchedule">TrancheSchedule</a>`&nbsp;these&nbsp;are&nbsp;four&nbsp;books&nbsp;with&nbsp;a&nbsp;quarter&nbsp;of&nbsp;the&nbsp;capital&nbsp;each,<br>
+every&nbsp;one&nbsp;rebuilt&nbsp;every&nbsp;21&nbsp;trading&nbsp;days,&nbsp;about&nbsp;a&nbsp;week&nbsp;apart.&nbsp;A&nbsp;single&nbsp;monthly&nbsp;book<br>
+depends&nbsp;a&nbsp;lot&nbsp;on&nbsp;which&nbsp;day&nbsp;of&nbsp;the&nbsp;month&nbsp;it&nbsp;happens&nbsp;to&nbsp;trade.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="strategy.html#TranchePCM">TranchePCM</a></dd>
+<dd><a href="common.html#PortfolioConstructionModel">common.PortfolioConstructionModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="TranchePCM-__init__"><strong>__init__</strong></a>(self, base: PortfolioConstructionModel, parts: int = 4)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="TranchePCM-create_targets"><strong>create_targets</strong></a>(self, signals, cov)</dt><dd><span class="code">Average&nbsp;of&nbsp;the&nbsp;base&nbsp;PCM's&nbsp;last&nbsp;`parts`&nbsp;target&nbsp;books.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#PortfolioConstructionModel">common.PortfolioConstructionModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="TrancheSchedule">class <strong>TrancheSchedule</strong></a>(<a href="common.html#RebalanceSchedule">common.RebalanceSchedule</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#TrancheSchedule">TrancheSchedule</a>(cycle:&nbsp;int&nbsp;=&nbsp;21,&nbsp;days:&nbsp;tuple[int,&nbsp;...]&nbsp;=&nbsp;(0,&nbsp;5,&nbsp;10,&nbsp;15))<br>
+&nbsp;<br>
+Rebalance&nbsp;on&nbsp;trading&nbsp;days&nbsp;`days`&nbsp;of&nbsp;every&nbsp;`cycle`-day&nbsp;cycle.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="strategy.html#TrancheSchedule">TrancheSchedule</a></dd>
+<dd><a href="common.html#RebalanceSchedule">common.RebalanceSchedule</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="TrancheSchedule-__init__"><strong>__init__</strong></a>(self, cycle: int = 21, days: tuple[int, ...] = (0, 5, 10, 15))</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="TrancheSchedule-should_rebalance"><strong>should_rebalance</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; bool</dt><dd><span class="code">True&nbsp;on&nbsp;days&nbsp;`days`&nbsp;of&nbsp;each&nbsp;`cycle`-day&nbsp;cycle&nbsp;of&nbsp;trading&nbsp;days.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#RebalanceSchedule">common.RebalanceSchedule</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="TrendStrengthAlpha">class <strong>TrendStrengthAlpha</strong></a>(<a href="common.html#AlphaModel">common.AlphaModel</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#TrendStrengthAlpha">TrendStrengthAlpha</a>(lookback:&nbsp;int&nbsp;=&nbsp;252,&nbsp;cap:&nbsp;float&nbsp;=&nbsp;1.0)<br>
+&nbsp;<br>
+t-stat&nbsp;of&nbsp;the&nbsp;252-bar&nbsp;return,&nbsp;capped&nbsp;at&nbsp;+-`cap`&nbsp;and&nbsp;divided&nbsp;by&nbsp;it.<br>
+&nbsp;<br>
+A&nbsp;clear&nbsp;trend&nbsp;gets&nbsp;+-1,&nbsp;same&nbsp;as&nbsp;the&nbsp;sign.&nbsp;A&nbsp;12-month&nbsp;move&nbsp;that&nbsp;is&nbsp;small&nbsp;next&nbsp;to&nbsp;the<br>
+contract's&nbsp;own&nbsp;noise&nbsp;gets&nbsp;a&nbsp;smaller&nbsp;position&nbsp;instead&nbsp;of&nbsp;a&nbsp;full&nbsp;one.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="strategy.html#TrendStrengthAlpha">TrendStrengthAlpha</a></dd>
+<dd><a href="common.html#AlphaModel">common.AlphaModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="TrendStrengthAlpha-__init__"><strong>__init__</strong></a>(self, lookback: int = 252, cap: float = 1.0)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="TrendStrengthAlpha-update"><strong>update</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; dict[str, float]</dt><dd><span class="code">Update&nbsp;each&nbsp;symbol's&nbsp;t-stat&nbsp;and&nbsp;emit&nbsp;clip(t&nbsp;/&nbsp;cap,&nbsp;-1,&nbsp;1)&nbsp;once&nbsp;it&nbsp;has&nbsp;`lookback`&nbsp;bars.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#AlphaModel">common.AlphaModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="VolFloorRiskModel">class <strong>VolFloorRiskModel</strong></a>(<a href="common.html#RiskModel">common.RiskModel</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#VolFloorRiskModel">VolFloorRiskModel</a>(base:&nbsp;<a href="common.html#RiskModel">RiskModel</a>,&nbsp;min_vol:&nbsp;float&nbsp;=&nbsp;0.03)<br>
+&nbsp;<br>
+Wraps&nbsp;a&nbsp;risk&nbsp;model&nbsp;and&nbsp;raises&nbsp;every&nbsp;volatility&nbsp;below&nbsp;`min_vol`&nbsp;to&nbsp;`min_vol`.<br>
+&nbsp;<br>
+Correlations&nbsp;are&nbsp;kept.&nbsp;Stops&nbsp;very&nbsp;quiet&nbsp;contracts&nbsp;(short-rate&nbsp;futures,&nbsp;2y&nbsp;notes)<br>
+from&nbsp;getting&nbsp;huge&nbsp;positions&nbsp;under&nbsp;1/vol&nbsp;sizing,&nbsp;which&nbsp;mostly&nbsp;cost&nbsp;financing.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="strategy.html#VolFloorRiskModel">VolFloorRiskModel</a></dd>
+<dd><a href="common.html#RiskModel">common.RiskModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="VolFloorRiskModel-__init__"><strong>__init__</strong></a>(self, base: RiskModel, min_vol: float = 0.03)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="VolFloorRiskModel-covariance"><strong>covariance</strong></a>(self, returns: pd.DataFrame) -&gt; pd.DataFrame</dt><dd><span class="code">Base&nbsp;covariance&nbsp;with&nbsp;every&nbsp;volatility&nbsp;floored&nbsp;at&nbsp;`min_vol`&nbsp;and&nbsp;correlations&nbsp;kept.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#RiskModel">common.RiskModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-__annotate__"><strong>__annotate__</strong></a>(format, /)</dt></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>ASSET_MAP_PATH</strong> = WindowsPath('data/processed/AssetMapCsv.csv')<br>
+<strong>CYCLE</strong> = 21<br>
+<strong>MIN_VOL</strong> = 0.03<br>
+<strong>NO_SHORT</strong> = ('EQ',)<br>
+<strong>TRANCHE_DAYS</strong> = (0, 5, 10, 15)<br>
+<strong>USER_STRATEGIES</strong> = {'KV': &lt;class 'strategy.KVStrategy'&gt;}<br>
+<strong>__conditional_annotations__</strong> = {0}</td></tr></table>
+</body></html>

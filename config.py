@@ -1,3 +1,5 @@
+"""Paths, sample window and data-cleaning constants shared across the project."""
+
 from pathlib import Path
 
 SAMPLE_START = "1976-02"

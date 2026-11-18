@@ -78,6 +78,12 @@ uv run main.py      # several minutes with all strategies; tables are also saved
 uv run pytest
 ```
 
+### Documentation
+
+Every public module, class and function has a docstring. Browse the generated HTML in `docs/` (open `docs/common.html`, etc.), or read it in the terminal with `uv run python -m pydoc common`. Regenerate the HTML after changing docstrings: `cd docs && uv run python -c "import sys; sys.path.insert(0, '..'); import pydoc; [pydoc.writedoc(m) for m in ['analysis','baselines','common','config','engine','indicators','indicators.monthly_returns','indicators.trend_tstat','panel','strategy','main']]"`.
+
+Docstring examples are tests too: `tests/test_doctests.py` runs them with the rest of `uv run pytest`.
+
 ## Scope
 
 Strategy development should only ever touch:

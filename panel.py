@@ -1,3 +1,5 @@
+"""`Panel`: loads vendor futures CSVs and aligns them on one timeline."""
+
 import re
 from pathlib import Path
 

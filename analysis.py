@@ -1,3 +1,5 @@
+"""Performance analytics on backtest results: monthly returns, summary tables, factor regressions, and plots."""
+
 import io
 import urllib.request
 import zipfile
@@ -16,6 +18,14 @@ from panel import Panel
 
 
 def first_trade_date(result: BacktestResult) -> pd.Timestamp:
+    """Return the first date on which `result` holds any position (the first date if it never trades).
+
+    >>> import pandas as pd
+    >>> from types import SimpleNamespace
+    >>> idx = pd.date_range("2020-01-01", periods=3)
+    >>> pos = pd.DataFrame({"A": [0.0, 0.5, 0.5]}, index=idx)
+    >>> str(first_trade_date(SimpleNamespace(positions=pos)).date())
+    '2020-01-02'"""
     active = result.positions.abs().sum(axis=1).gt(0)
     return active.idxmax() if active.any() else result.positions.index[0]
 
@@ -29,11 +39,25 @@ def monthly_returns(result: BacktestResult, gross: bool = False) -> pd.Series:
 
 
 def max_drawdown(r: pd.Series) -> float:
+    """Worst peak-to-trough loss of the compounded return series `r`, as a non-positive number.
+
+    >>> import pandas as pd
+    >>> round(max_drawdown(pd.Series([0.10, -0.20, 0.05])), 4)
+    -0.2"""
     wealth = (1.0 + r.fillna(0.0)).cumprod()
     return float((wealth / wealth.cummax() - 1.0).min())
 
 
 def monthly_metrics(r: pd.Series) -> dict[str, float]:
+    """Annualised statistics of a monthly return series.
+
+    Returns a dict with Avg, Std, SR, t(mean), Skew, ExKurt, MaxDD, Calmar and Hit rate.
+    All values are NaN when the series is empty or has zero variance.
+
+    >>> import pandas as pd
+    >>> m = monthly_metrics(pd.Series([0.01, 0.02, -0.01, 0.03]))
+    >>> round(m["Avg"], 2), round(m["Hit rate"], 2)
+    (0.15, 0.75)"""
     r = r.dropna()
     if r.empty or r.std() == 0:
         return {

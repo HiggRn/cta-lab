@@ -1,3 +1,5 @@
+"""Backtest engine: cost models and `run_backtest`, which runs a `Strategy` over a `Panel`."""
+
 from __future__ import annotations
 
 import abc
@@ -14,12 +16,15 @@ from panel import Panel
 
 @dataclass(frozen=True, slots=True)
 class CostBreakdown:
+    """Trading, roll and financing cost of a period, as fractions of NAV."""
+
     trading: float = 0.0
     roll: float = 0.0
     financing: float = 0.0
 
     @property
     def total(self) -> float:
+        """Sum of trading, roll and financing costs."""
         return self.trading + self.roll + self.financing
 
 
@@ -46,9 +51,11 @@ class ZeroCostModel(CostModel):
     def trading_cost(
         self, traded_weights: np.ndarray, bars: dict[str, Bar], symbols: list[str]
     ) -> float:
+        """Always 0."""
         return 0.0
 
     def holding_costs(self, held_weights: np.ndarray) -> tuple[float, float]:
+        """Always (0, 0)."""
         return 0.0, 0.0
 
 
@@ -82,10 +89,12 @@ class FuturesCostModel(CostModel):
         bars: dict[str, Bar],
         symbols: list[str],
     ) -> float:
+        """Turnover (sum of |traded weights|) times the trading rate."""
         turnover = float(np.abs(traded_weights).sum())
         return turnover * self.trading_rate
 
     def holding_costs(self, held_weights: np.ndarray) -> tuple[float, float]:
+        """Daily (roll, financing): roll on gross leverage, financing on gross leverage above the free threshold."""
         gross_leverage = float(np.abs(held_weights).sum())
         roll_cost = gross_leverage * self.daily_roll_rate
         excess_leverage = max(0.0, gross_leverage - self.free_leverage_threshold)
@@ -97,6 +106,10 @@ class FuturesCostModel(CostModel):
 
 
 class BacktestResult:
+    """Output of `run_backtest`: weights, positions, P&L, costs, turnover and NAV, all indexed by date.
+
+    `weights` are the targets the strategy chose; `positions` are the weights actually held into each day's return."""
+
     def __init__(
         self,
         weights: pd.DataFrame,
@@ -129,6 +142,17 @@ def run_backtest(
     cost_bps: float | None = None,
     exec_lag: int = 1,
 ) -> BacktestResult:
+    """Run `strategy` over `panel` one day at a time and return a `BacktestResult`.
+
+    Orders decided at day t's close execute `exec_lag` bars later (must be at least 1, so no look-ahead),
+    on the first day each contract has a bar. Positions in contracts past their final bar are closed.
+
+    Args:
+        panel: Aligned price data.
+        strategy: Strategy called once per day with that day's bars.
+        cost_model: Cost model. Defaults to `FuturesCostModel` with `cost_bps` trading cost, else zero cost.
+        cost_bps: Shortcut for trading cost only when `cost_model` is not given.
+        exec_lag: Bars between decision and execution."""
     if exec_lag < 1:
         raise ValueError("exec_lag must be >= 1 to prevent lookahead bias")
 

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module indicators.trend_tstat</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title"><a href="indicators.html" class="white">indicators</a>.trend_tstat</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:///c:/users/ieea_gc_laptop_05/onedrive/desktop/fall%202026/orie%205260/quant_portfolio_project/cta-lab-docs/indicators/trend_tstat.py">c:\users\ieea_gc_laptop_05\onedrive\desktop\fall 2026\orie 5260\quant_portfolio_project\cta-lab-docs\indicators\trend_tstat.py</a></td></tr></table>
+    <p><span class="code">`<a href="#TrendTStat">TrendTStat</a>`:&nbsp;volatility-adjusted&nbsp;trend&nbsp;strength.</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="math.html">math</a><br>
+</td><td class="multicolumn"><a href="numpy.html">numpy</a><br>
+</td><td class="multicolumn"></td><td class="multicolumn"></td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor index-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Classes</strong></td></tr>
+    
+<tr><td class="decor index-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl>
+<dt class="heading-text"><a href="common.html#Indicator">common.Indicator</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="indicators.trend_tstat.html#TrendTStat">TrendTStat</a>
+</dt></dl>
+</dd>
+</dl>
+ <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="TrendTStat">class <strong>TrendTStat</strong></a>(<a href="common.html#Indicator">common.Indicator</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#TrendTStat">TrendTStat</a>(lookback:&nbsp;int&nbsp;=&nbsp;252)<br>
+&nbsp;<br>
+Log&nbsp;return&nbsp;over&nbsp;the&nbsp;last&nbsp;`lookback`&nbsp;bars&nbsp;divided&nbsp;by&nbsp;the&nbsp;volatility&nbsp;of&nbsp;those&nbsp;bars.<br>
+&nbsp;<br>
+Same&nbsp;thing&nbsp;as&nbsp;the&nbsp;t-statistic&nbsp;of&nbsp;the&nbsp;average&nbsp;daily&nbsp;return,&nbsp;so&nbsp;it&nbsp;says&nbsp;how&nbsp;clear&nbsp;the<br>
+trend&nbsp;is&nbsp;and&nbsp;not&nbsp;only&nbsp;which&nbsp;way&nbsp;it&nbsp;points.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="indicators.trend_tstat.html#TrendTStat">TrendTStat</a></dd>
+<dd><a href="common.html#Indicator">common.Indicator</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="TrendTStat-__init__"><strong>__init__</strong></a>(self, lookback: int = 252)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="TrendTStat-update"><strong>update</strong></a>(self, bar: Bar) -&gt; None</dt><dd><span class="code">Append&nbsp;the&nbsp;log&nbsp;of&nbsp;the&nbsp;bar's&nbsp;close&nbsp;(non-positive&nbsp;closes&nbsp;are&nbsp;ignored).</span></dd></dl>
+
+<hr>
+Readonly properties defined here:<br>
+<dl><dt><strong>is_ready</strong></dt>
+<dd><span class="code">True&nbsp;once&nbsp;`lookback`&nbsp;+&nbsp;1&nbsp;closes&nbsp;have&nbsp;been&nbsp;seen.</span></dd>
+</dl>
+<dl><dt><strong>value</strong></dt>
+<dd><span class="code">Trend&nbsp;t-statistic&nbsp;over&nbsp;the&nbsp;window;&nbsp;0&nbsp;when&nbsp;volatility&nbsp;is&nbsp;zero.</span></dd>
+</dl>
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#Indicator">common.Indicator</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table></td></tr></table>
+</body></html>

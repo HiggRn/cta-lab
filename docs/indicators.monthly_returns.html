@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module indicators.monthly_returns</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title"><a href="indicators.html" class="white">indicators</a>.monthly_returns</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:///c:/users/ieea_gc_laptop_05/onedrive/desktop/fall%202026/orie%205260/quant_portfolio_project/cta-lab-docs/indicators/monthly_returns.py">c:\users\ieea_gc_laptop_05\onedrive\desktop\fall 2026\orie 5260\quant_portfolio_project\cta-lab-docs\indicators\monthly_returns.py</a></td></tr></table>
+    <p><span class="code">`<a href="#MonthlyReturn">MonthlyReturn</a>`:&nbsp;returns&nbsp;of&nbsp;completed&nbsp;calendar&nbsp;months,&nbsp;from&nbsp;month-end&nbsp;closes.</span></p>
+<p>
+<table class="section">
+<tr class="decor index-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Classes</strong></td></tr>
+    
+<tr><td class="decor index-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl>
+<dt class="heading-text"><a href="common.html#Indicator">common.Indicator</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="indicators.monthly_returns.html#MonthlyReturn">MonthlyReturn</a>
+</dt></dl>
+</dd>
+</dl>
+ <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="MonthlyReturn">class <strong>MonthlyReturn</strong></a>(<a href="common.html#Indicator">common.Indicator</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#MonthlyReturn">MonthlyReturn</a>(lookback:&nbsp;int&nbsp;=&nbsp;12)<br>
+&nbsp;<br>
+Close-to-close&nbsp;return&nbsp;of&nbsp;each&nbsp;calendar&nbsp;month,&nbsp;keeping&nbsp;the&nbsp;last&nbsp;`lookback`&nbsp;completed&nbsp;months.<br>
+&nbsp;<br>
+A&nbsp;month's&nbsp;return&nbsp;is&nbsp;measured&nbsp;from&nbsp;the&nbsp;previous&nbsp;month's&nbsp;last&nbsp;close&nbsp;to&nbsp;its&nbsp;own&nbsp;last&nbsp;close.<br>
+`just_closed_month`&nbsp;is&nbsp;True&nbsp;on&nbsp;the&nbsp;bar&nbsp;that&nbsp;starts&nbsp;a&nbsp;new&nbsp;month.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="indicators.monthly_returns.html#MonthlyReturn">MonthlyReturn</a></dd>
+<dd><a href="common.html#Indicator">common.Indicator</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="MonthlyReturn-__init__"><strong>__init__</strong></a>(self, lookback: int = 12)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="MonthlyReturn-update"><strong>update</strong></a>(self, bar: Bar) -&gt; None</dt><dd><span class="code">Feed&nbsp;one&nbsp;bar,&nbsp;closing&nbsp;the&nbsp;previous&nbsp;month&nbsp;if&nbsp;the&nbsp;month&nbsp;changed.</span></dd></dl>
+
+<hr>
+Readonly properties defined here:<br>
+<dl><dt><strong>is_ready</strong></dt>
+<dd><span class="code">True&nbsp;once&nbsp;`lookback`&nbsp;months&nbsp;have&nbsp;completed.</span></dd>
+</dl>
+<dl><dt><strong>returns</strong></dt>
+<dd><span class="code">Completed&nbsp;monthly&nbsp;returns&nbsp;plus&nbsp;the&nbsp;month&nbsp;in&nbsp;progress,&nbsp;at&nbsp;most&nbsp;`lookback`&nbsp;of&nbsp;them.</span></dd>
+</dl>
+<dl><dt><strong>value</strong></dt>
+<dd><span class="code">Sum&nbsp;of&nbsp;the&nbsp;completed&nbsp;monthly&nbsp;returns.</span></dd>
+</dl>
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#Indicator">common.Indicator</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table></td></tr></table>
+</body></html>

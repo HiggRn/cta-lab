@@ -1,3 +1,5 @@
+"""User strategies: KV, the baseline plus a few changes (no equity shorts, trend-strength signal, EWMA vol with a floor, weekly tranches)."""
+
 from collections import deque
 
 import numpy as np
@@ -34,6 +36,7 @@ class VolFloorRiskModel(RiskModel):
         self.min_vol = min_vol
 
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        """Base covariance with every volatility floored at `min_vol` and correlations kept."""
         cov = self.base.covariance(returns)
         vol = np.sqrt(np.diag(cov))
         with np.errstate(invalid="ignore", divide="ignore"):
@@ -75,6 +78,7 @@ class NoShortAlpha(AlphaModel):
         self.classes = classes if classes is not None else _asset_classes()
 
     def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        """Base signals with shorts set to 0 in the asset classes in `flat`."""
         signals = self.base.update(bars, context)
         return {
             s: 0.0 if x < 0.0 and self.classes.get(s) in self.flat else x
@@ -95,6 +99,7 @@ class TrendStrengthAlpha(AlphaModel):
         self._tstat: dict[str, TrendTStat] = {}
 
     def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        """Update each symbol's t-stat and emit clip(t / cap, -1, 1) once it has `lookback` bars."""
         signals = {}
         for symbol, bar in bars.items():
             if symbol not in self._tstat:
@@ -119,6 +124,7 @@ class EwmaVolRiskModel(RiskModel):
         self.periods_per_year = periods_per_year
 
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        """Sample correlations with EWMA volatilities, annualised."""
         cov = returns.cov(min_periods=20) * self.periods_per_year
         ewma = returns.ewm(com=self.com, min_periods=20).std().iloc[-1]
         with np.errstate(invalid="ignore", divide="ignore"):
@@ -137,6 +143,7 @@ class TrancheSchedule(RebalanceSchedule):
         self._count = -1
 
     def should_rebalance(self, bars: dict[str, Bar], context: HistoryContext) -> bool:
+        """True on days `days` of each `cycle`-day cycle of trading days."""
         if not bars:
             return False
         self._count += 1
@@ -158,6 +165,7 @@ class TranchePCM(PortfolioConstructionModel):
         self._recent: deque[dict[str, float]] = deque(maxlen=parts)
 
     def create_targets(self, signals, cov):
+        """Average of the base PCM's last `parts` target books."""
         self._recent.append(self.base.create_targets(signals, cov))
         book: dict[str, float] = {}
         for targets in self._recent:

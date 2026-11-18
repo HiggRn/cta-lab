@@ -1,3 +1,5 @@
+"""Course baseline strategies: monthly time-series momentum (TSMOM) and a static long-only benchmark."""
+
 import numpy as np
 import pandas as pd
 
@@ -24,6 +26,7 @@ class MonthlyTsmomAlpha(AlphaModel):
         self._monthly: dict[str, MonthlyReturn] = {}
 
     def update(self, bars: dict[str, Bar], context: HistoryContext) -> dict[str, float]:
+        """Update each traded symbol's monthly-return indicator and emit a signal on the bar that closes a month."""
         signals = {}
         for symbol, bar in bars.items():
             if symbol not in self._monthly:
@@ -35,6 +38,12 @@ class MonthlyTsmomAlpha(AlphaModel):
         return signals
 
     def direction(self, completed_returns: list[float]) -> float:
+        """Average over `lookbacks` of the sign of the summed last k completed monthly returns.
+
+    >>> MonthlyTsmomAlpha((1, 2)).direction([0.05, -0.01])
+    0.0
+    >>> MonthlyTsmomAlpha((1,)).direction([-0.02])
+    -1.0"""
         signs = [np.sign(sum(completed_returns[-k:])) for k in self.lookbacks]
         return float(np.mean(signs))
 
@@ -43,6 +52,7 @@ class StaticLongAlpha(MonthlyTsmomAlpha):
     """Static long-only benchmark: enters each contract once the same history as TSMOM exists."""
 
     def direction(self, completed_returns: list[float]) -> float:
+        """Always +1: the position is long whenever enough history exists."""
         return 1.0
 
 
@@ -66,6 +76,7 @@ class ExpandingMonthlyRiskModel(RiskModel):
         self.min_months = min_months
 
     def covariance(self, returns: pd.DataFrame) -> pd.DataFrame:
+        """Annualised (x12) covariance of completed monthly returns, NaN below `min_months` observations."""
         return (
             _completed_monthly_returns(returns).cov(min_periods=self.min_months) * 12.0
         )

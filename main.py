@@ -1,3 +1,5 @@
+"""Entry point: runs the baselines and user strategies, then writes the evaluation tables and plots to `outputs/`."""
+
 import pandas as pd
 
 from analysis import (
@@ -38,6 +40,7 @@ MIN_REG_MONTHS = 24  # fewer months than this make the factor regressions meanin
 
 
 def main() -> None:
+    """Load the panel, backtest every strategy with the same costs, and report in-sample and out-of-sample results."""
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     panel = Panel(
