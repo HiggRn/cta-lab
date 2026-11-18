@@ -1,0 +1,231 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CTA Lab API</title>
+<style>
+body { font: 15px/1.5 system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+h2 { border-bottom: 1px solid #ddd; padding-top: 1rem; }
+h3, h4 { font-family: ui-monospace, monospace; margin-bottom: .2rem; }
+h4 { font-size: .95em; margin-left: 1rem; color: #444; }
+h4 + p, h4 ~ p { margin-left: 1rem; }
+p { white-space: pre-wrap; margin-top: .2rem; }
+</style></head><body>
+<h1>CTA Lab API</h1>
+<ul><li><a href="#common">common</a></li><li><a href="#indicators.monthly_returns">indicators.monthly_returns</a></li><li><a href="#indicators.trend_tstat">indicators.trend_tstat</a></li><li><a href="#baselines">baselines</a></li><li><a href="#strategy">strategy</a></li><li><a href="#panel">panel</a></li><li><a href="#engine">engine</a></li><li><a href="#analysis">analysis</a></li><li><a href="#config">config</a></li><li><a href="#main">main</a></li></ul>
+<h2 id="common">common</h2>
+
+<h3>class Bar</h3>
+<p>Bar(date: pandas.Timestamp, open: float, high: float, low: float, close: float, volume: float, open_interest: float)</p>
+<h4>__init__(self, date: pandas.Timestamp, open: float, high: float, low: float, close: float, volume: float, open_interest: float) -&gt; None</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h3>class Indicator(ABC)</h3>
+<p>Helper class that provides a standard way to create an ABC using
+inheritance.</p>
+<h4>is_ready <small>(property)</small></h4>
+<h4>value <small>(property)</small></h4><p>Only meaningful once is_ready is True.</p>
+<h4>update(self, bar: common.Bar) -&gt; None</h4><p>Feed one bar. Called only on days the symbol traded.</p>
+<h3>class HistoryContext</h3>
+
+<h4>__init__(self, returns_arr: numpy.ndarray, close_arr: numpy.ndarray, dates: pandas.DatetimeIndex, symbols: list[str], first_valid_idx: numpy.ndarray, last_valid_idx: numpy.ndarray)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>current_date <small>(property)</small></h4>
+<h4>prev_date <small>(property)</small></h4>
+<h4>active_universe <small>(property)</small></h4><p>Symbols that have started trading and whose final bar is not in the past.
+
+The dataset&#x27;s last bar is taken as the delisting date, so a symbol drops out the day after
+its last bar. This is reference data from the future, but a contract is never dropped before
+its last bar: truncating the data at any date leaves everything before the cut unchanged.</p>
+<h4>get_returns(self, lookback: int | None = None) -&gt; pandas.DataFrame</h4><p>Observed daily returns up to today (inclusive). NaN on non-trading days.</p>
+<h4>get_closes(self, lookback: int | None = None) -&gt; pandas.DataFrame</h4><p>Observed daily close prices up to today (inclusive). NaN on non-trading days.</p>
+<h3>class RebalanceSchedule(ABC)</h3>
+<p>Determines whether the strategy should rebalance on the current bar.</p>
+<h4>should_rebalance(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; bool</h4>
+<h3>class DailySchedule(RebalanceSchedule)</h3>
+<p>Rebalance on every trading day.</p>
+<h4>should_rebalance(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; bool</h4>
+<h3>class WeeklySchedule(RebalanceSchedule)</h3>
+<p>Rebalance on the first trading day of each new ISO calendar week.</p>
+<h4>should_rebalance(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; bool</h4>
+<h3>class FirstAllTradableDayMonthlySchedule(RebalanceSchedule)</h3>
+<p>Determines whether the strategy should rebalance on the current bar.</p>
+<h4>__init__(self, max_wait_days: int = 5)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>should_rebalance(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; bool</h4>
+<h3>class AlphaModel(ABC)</h3>
+<p>Helper class that provides a standard way to create an ABC using
+inheritance.</p>
+<h4>update(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; dict[str, float]</h4><p>Return updated signals. Absent symbols keep their previous signal; 0.0 means flat.</p>
+<h3>class RiskModel(ABC)</h3>
+<p>Helper class that provides a standard way to create an ABC using
+inheritance.</p>
+<h4>covariance(self, returns: pandas.DataFrame) -&gt; pandas.DataFrame</h4><p>Annualized covariance matrix, indexed and columned by symbol.</p>
+<h3>class PortfolioConstructionModel(ABC)</h3>
+<p>Helper class that provides a standard way to create an ABC using
+inheritance.</p>
+<h4>create_targets(self, signals: dict[str, float], cov: pandas.DataFrame) -&gt; dict[str, float]</h4><p>Return target weights dict. Absent symbols are treated as 0.0 (flat).</p>
+<h3>class Strategy(ABC)</h3>
+<p>Helper class that provides a standard way to create an ABC using
+inheritance.</p>
+<h4>on_bar(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; dict[str, float] | None</h4><p>Called at the close of each trading day.
+Return a dict of new target weights to trigger a rebalance, or None to hold current positions.</p>
+<h3>class ModularStrategy(Strategy)</h3>
+<p>Composable strategy skeleton combining AlphaModel, RiskModel, PCM, and RebalanceSchedule.</p>
+<h4>__init__(self, alpha_model: common.AlphaModel, risk_model: common.RiskModel, pcm: common.PortfolioConstructionModel, schedule: common.RebalanceSchedule | None = None, risk_lookback: int | None = None)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>on_bar(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; dict[str, float] | None</h4><p>Called at the close of each trading day.
+Return a dict of new target weights to trigger a rebalance, or None to hold current positions.</p>
+<h3>exante_vol(weights: dict[str, float], cov: pandas.DataFrame) -&gt; float</h3><p>Annualised ex-ante portfolio volatility sqrt(w&#x27; cov w).</p>
+<h3>class SampleCovarianceRiskModel(RiskModel)</h3>
+<p>Standard rolling/expanding daily sample covariance matrix.</p>
+<h4>__init__(self, periods_per_year: int = 252, min_periods: int = 20)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>covariance(self, returns: pandas.DataFrame) -&gt; pandas.DataFrame</h4><p>Annualized covariance matrix, indexed and columned by symbol.</p>
+<h3>class EqualRiskPCM(PortfolioConstructionModel)</h3>
+<p>Each active position targets `position_vol`, weighted 1/N across live symbols.</p>
+<h4>__init__(self, position_vol: float = 0.4, min_assets: int = 10)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>create_targets(self, signals: dict[str, float], cov: pandas.DataFrame) -&gt; dict[str, float]</h4><p>Return target weights dict. Absent symbols are treated as 0.0 (flat).</p>
+<h3>class VolTargetPCM(PortfolioConstructionModel)</h3>
+<p>Wraps any PCM and scales weights so ex-ante portfolio vol equals `target_vol`.</p>
+<h4>__init__(self, base_pcm: common.PortfolioConstructionModel, target_vol: float = 0.11)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>create_targets(self, signals: dict[str, float], cov: pandas.DataFrame) -&gt; dict[str, float]</h4><p>Return target weights dict. Absent symbols are treated as 0.0 (flat).</p>
+<h3>class InverseVolPCM(PortfolioConstructionModel)</h3>
+<p>Sizes positions inversely proportional to volatility, scaled to `target_gross_leverage`.</p>
+<h4>__init__(self, target_gross_leverage: float = 1.0)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>create_targets(self, signals: dict[str, float], cov: pandas.DataFrame) -&gt; dict[str, float]</h4><p>Return target weights dict. Absent symbols are treated as 0.0 (flat).</p><h2 id="indicators.monthly_returns">indicators.monthly_returns</h2>
+
+<h3>class MonthlyReturn(Indicator)</h3>
+<p>Helper class that provides a standard way to create an ABC using
+inheritance.</p>
+<h4>__init__(self, lookback: int = 12)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>returns <small>(property)</small></h4>
+<h4>is_ready <small>(property)</small></h4>
+<h4>value <small>(property)</small></h4><p>Only meaningful once is_ready is True.</p>
+<h4>update(self, bar: common.Bar) -&gt; None</h4><p>Feed one bar. Called only on days the symbol traded.</p><h2 id="indicators.trend_tstat">indicators.trend_tstat</h2>
+
+<h3>class TrendTStat(Indicator)</h3>
+<p>Log return over the last `lookback` bars divided by the volatility of those bars.
+
+Same thing as the t-statistic of the average daily return, so it says how clear the
+trend is and not only which way it points.</p>
+<h4>__init__(self, lookback: int = 252)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>is_ready <small>(property)</small></h4>
+<h4>value <small>(property)</small></h4><p>Only meaningful once is_ready is True.</p>
+<h4>update(self, bar: common.Bar) -&gt; None</h4><p>Feed one bar. Called only on days the symbol traded.</p><h2 id="baselines">baselines</h2>
+
+<h3>class MonthlyTsmomAlpha(AlphaModel)</h3>
+<p>Sign of past completed calendar-month returns (single or blended lookbacks).</p>
+<h4>__init__(self, lookbacks: tuple[int, ...] = (12,))</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>update(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; dict[str, float]</h4><p>Return updated signals. Absent symbols keep their previous signal; 0.0 means flat.</p>
+<h4>direction(self, completed_returns: list[float]) -&gt; float</h4>
+<h3>class StaticLongAlpha(MonthlyTsmomAlpha)</h3>
+<p>Static long-only benchmark: enters each contract once the same history as TSMOM exists.</p>
+<h4>direction(self, completed_returns: list[float]) -&gt; float</h4>
+<h3>class ExpandingMonthlyRiskModel(RiskModel)</h3>
+<p>Expanding-window covariance of completed monthly returns.</p>
+<h4>__init__(self, min_months: int = 36)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>covariance(self, returns: pandas.DataFrame) -&gt; pandas.DataFrame</h4><p>Annualized covariance matrix, indexed and columned by symbol.</p>
+<h3>class BaselineTsmomStrategy(ModularStrategy)</h3>
+<p>Monthly 12m TSMOM, expanding monthly vol, 40% equal risk, 1/N (the midterm baseline).</p>
+<h4>__init__(self, lookbacks: tuple[int, ...] = (12,))</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h3>class StaticBenchmarkStrategy(ModularStrategy)</h3>
+<p>Static Long-Only Benchmark: identical risk sizing &amp; universe entry as the monthly 12m TSMOM.</p>
+<h4>__init__(self)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p><h2 id="strategy">strategy</h2>
+
+<h3>class VolFloorRiskModel(RiskModel)</h3>
+<p>Wraps a risk model and raises every volatility below `min_vol` to `min_vol`.
+
+Correlations are kept. Stops very quiet contracts (short-rate futures, 2y notes)
+from getting huge positions under 1/vol sizing, which mostly cost financing.</p>
+<h4>__init__(self, base: common.RiskModel, min_vol: float = 0.03)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>covariance(self, returns: pandas.DataFrame) -&gt; pandas.DataFrame</h4><p>Annualized covariance matrix, indexed and columned by symbol.</p>
+<h3>class NoShortAlpha(AlphaModel)</h3>
+<p>Wraps an alpha and sets short signals to zero in the asset classes in `flat`.</p>
+<h4>__init__(self, base: common.AlphaModel, flat: tuple[str, ...] = (&#x27;EQ&#x27;,), classes: dict[str, str] | None = None)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>update(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; dict[str, float]</h4><p>Return updated signals. Absent symbols keep their previous signal; 0.0 means flat.</p>
+<h3>class TrendStrengthAlpha(AlphaModel)</h3>
+<p>t-stat of the 252-bar return, capped at +-`cap` and divided by it.
+
+A clear trend gets +-1, same as the sign. A 12-month move that is small next to the
+contract&#x27;s own noise gets a smaller position instead of a full one.</p>
+<h4>__init__(self, lookback: int = 252, cap: float = 1.0)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>update(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; dict[str, float]</h4><p>Return updated signals. Absent symbols keep their previous signal; 0.0 means flat.</p>
+<h3>class EwmaVolRiskModel(RiskModel)</h3>
+<p>Sample correlations of the returns passed in, with EWMA vols (centre of mass 60
+days) on the diagonal.
+
+The 12-month vol is slow: after a quiet year it keeps positions big well into a
+selloff. Correlations stay on the full window, where they are better estimated.</p>
+<h4>__init__(self, com: float = 60.0, periods_per_year: int = 252)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>covariance(self, returns: pandas.DataFrame) -&gt; pandas.DataFrame</h4><p>Annualized covariance matrix, indexed and columned by symbol.</p>
+<h3>class TrancheSchedule(RebalanceSchedule)</h3>
+<p>Rebalance on trading days `days` of every `cycle`-day cycle.</p>
+<h4>__init__(self, cycle: int = 21, days: tuple[int, ...] = (0, 5, 10, 15))</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>should_rebalance(self, bars: dict[str, common.Bar], context: common.HistoryContext) -&gt; bool</h4>
+<h3>class TranchePCM(PortfolioConstructionModel)</h3>
+<p>Wraps a PCM and holds the average of its last `parts` targets.
+
+With `TrancheSchedule` these are four books with a quarter of the capital each,
+every one rebuilt every 21 trading days, about a week apart. A single monthly book
+depends a lot on which day of the month it happens to trade.</p>
+<h4>__init__(self, base: common.PortfolioConstructionModel, parts: int = 4)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>create_targets(self, signals, cov)</h4><p>Return target weights dict. Absent symbols are treated as 0.0 (flat).</p>
+<h3>class KVStrategy(ModularStrategy)</h3>
+<p>12-month sign, no equity shorts, EWMA vol with the 3% floor, four weekly
+tranches, 11% vol.</p>
+<h4>__init__(self, alpha_model: common.AlphaModel | None = None, pcm: common.PortfolioConstructionModel | None = None)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p><h2 id="panel">panel</h2>
+
+<h3>class Panel</h3>
+<p>Loads raw OHLCV+OI futures CSVs and aligns them on a unified chronological timeline
+without injecting any future calendar/lookahead flags.</p>
+<h4>__init__(self, raw_dir: pathlib.Path, asset_map_path: pathlib.Path, dropped_symbols: frozenset[str] = frozenset(), successors: dict[str, str] | None = None, roll_fixes: dict[str, list[str]] | None = None) -&gt; None</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p><h2 id="engine">engine</h2>
+
+<h3>class CostBreakdown</h3>
+<p>CostBreakdown(trading: &#x27;float&#x27; = 0.0, roll: &#x27;float&#x27; = 0.0, financing: &#x27;float&#x27; = 0.0)</p>
+<h4>total <small>(property)</small></h4>
+<h4>__init__(self, trading: &#x27;float&#x27; = 0.0, roll: &#x27;float&#x27; = 0.0, financing: &#x27;float&#x27; = 0.0) -&gt; None</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h3>class CostModel(ABC)</h3>
+<p>Interface for transaction and holding cost calculation.</p>
+<h4>trading_cost(self, traded_weights: &#x27;np.ndarray&#x27;, bars: &#x27;dict[str, Bar]&#x27;, symbols: &#x27;list[str]&#x27;) -&gt; &#x27;float&#x27;</h4><p>Cost incurred when executing weight changes |w_target - w_held|.</p>
+<h4>holding_costs(self, held_weights: &#x27;np.ndarray&#x27;) -&gt; &#x27;tuple[float, float]&#x27;</h4><p>Daily holding costs: returns (roll_cost, financing_cost).</p>
+<h3>class ZeroCostModel(CostModel)</h3>
+<p>No transaction costs.</p>
+<h4>trading_cost(self, traded_weights: &#x27;np.ndarray&#x27;, bars: &#x27;dict[str, Bar]&#x27;, symbols: &#x27;list[str]&#x27;) -&gt; &#x27;float&#x27;</h4><p>Cost incurred when executing weight changes |w_target - w_held|.</p>
+<h4>holding_costs(self, held_weights: &#x27;np.ndarray&#x27;) -&gt; &#x27;tuple[float, float]&#x27;</h4><p>Daily holding costs: returns (roll_cost, financing_cost).</p>
+<h3>class FuturesCostModel(CostModel)</h3>
+<p>1. Trading &amp; Market Impact Cost: bps per unit of turnover.
+2. Roll Cost: bps per roll * rolls per year, accrued daily on gross notional |w|.
+3. Leverage Financing Cost: bps per year on gross leverage exceeding
+   the embedded margin-free threshold.</p>
+<h4>__init__(self, trading_cost_bps: &#x27;float&#x27; = 1.5, roll_cost_bps: &#x27;float&#x27; = 1.5, rolls_per_year: &#x27;float&#x27; = 4.0, financing_cost_bps: &#x27;float&#x27; = 50.0, free_leverage_threshold: &#x27;float&#x27; = 1.0, periods_per_year: &#x27;int&#x27; = 252)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h4>trading_cost(self, traded_weights: &#x27;np.ndarray&#x27;, bars: &#x27;dict[str, Bar]&#x27;, symbols: &#x27;list[str]&#x27;) -&gt; &#x27;float&#x27;</h4><p>Cost incurred when executing weight changes |w_target - w_held|.</p>
+<h4>holding_costs(self, held_weights: &#x27;np.ndarray&#x27;) -&gt; &#x27;tuple[float, float]&#x27;</h4><p>Daily holding costs: returns (roll_cost, financing_cost).</p>
+<h3>class BacktestResult</h3>
+
+<h4>__init__(self, weights: &#x27;pd.DataFrame&#x27;, positions: &#x27;pd.DataFrame&#x27;, gross_pnl: &#x27;pd.Series&#x27;, trading_costs: &#x27;pd.Series&#x27;, roll_costs: &#x27;pd.Series&#x27;, financing_costs: &#x27;pd.Series&#x27;, turnover: &#x27;pd.Series&#x27;)</h4><p>Initialize self.  See help(type(self)) for accurate signature.</p>
+<h3>run_backtest(panel: &#x27;Panel&#x27;, strategy: &#x27;Strategy&#x27;, cost_model: &#x27;CostModel | None&#x27; = None, cost_bps: &#x27;float | None&#x27; = None, exec_lag: &#x27;int&#x27; = 1) -&gt; &#x27;BacktestResult&#x27;</h3><h2 id="analysis">analysis</h2>
+
+<h3>first_trade_date(result: engine.BacktestResult) -&gt; pandas.Timestamp</h3>
+<h3>monthly_returns(result: engine.BacktestResult, gross: bool = False) -&gt; pandas.Series</h3><p>Compound daily net (or gross) returns into calendar months after the first trade.</p>
+<h3>max_drawdown(r: pandas.Series) -&gt; float</h3>
+<h3>monthly_metrics(r: pandas.Series) -&gt; dict[str, float]</h3>
+<h3>sharpe_diff_test(a: pandas.Series, b: pandas.Series) -&gt; dict[str, float]</h3><p>Jobson-Korkie test with Memmel&#x27;s correction that two Sharpe ratios are equal.</p>
+<h3>strategy_summary_table(results: dict[str, engine.BacktestResult], baseline_name: str, sample_start: str | None = None, sample_end: str | None = None) -&gt; pandas.DataFrame</h3><p>Comprehensive comparison table of net/gross performance, turnover, cost drag (bps/yr),
+average gross leverage, number of positions and net exposure, and Sharpe difference p-value
+against `baseline_name`, over months sample_start..sample_end.</p>
+<h3>load_factors(folder: pathlib.Path) -&gt; pandas.DataFrame</h3><p>Download/load Fama-French 3/5 factors plus Momentum (UMD).</p>
+<h3>load_benchmarks(panel: panel.Panel, static_ret: pandas.Series, factor_dir: pathlib.Path) -&gt; tuple[dict[str, pandas.DataFrame], pandas.DataFrame]</h3><p>Build standard Lecture 3 benchmark suite and return (benchmarks_dict, factors_df).</p>
+<h3>ols(y: pandas.Series, X: pandas.DataFrame, nw_lags: int = 6, periods: int = 12) -&gt; dict[str, float]</h3><p>OLS with Newey-West HAC standard errors. Alpha is annualized with `periods` per year.</p>
+<h3>alpha_table(strategy_ret: pandas.Series, benchmarks: dict[str, pandas.DataFrame]) -&gt; pandas.DataFrame</h3><p>Regress a strategy&#x27;s monthly return series against each benchmark.</p>
+<h3>sg_trend_comparison(strategy_ret: pandas.Series, sg_excel_path: pathlib.Path) -&gt; dict[str, float | str]</h3><p>Regress strategy excess returns on the live CTA index (SG Trend - RF).
+
+alpha is the strategy&#x27;s annualized alpha over SG Trend.</p>
+<h3>to_quarterly(r: pandas.Series) -&gt; pandas.Series</h3><p>Sum of monthly returns in each complete 3-month calendar quarter.</p>
+<h3>smile_regression(strategy_ret: pandas.Series, market_ret: pandas.Series) -&gt; dict[str, float]</h3><p>Quarterly regression on Mkt and Mkt^2 to test positive tail convexity.</p>
+<h3>regime_returns(strategies_monthly: dict[str, pandas.Series], market_ret: pandas.Series, q: float = 0.2) -&gt; pandas.DataFrame</h3><p>Annualized average return during Bear (worst 20%), Normal (middle 60%), and Bull (best 20%) equity months.</p>
+<h3>correlation_structure(panel: panel.Panel, result: engine.BacktestResult, start: str | None = None, end: str | None = None) -&gt; pandas.DataFrame</h3><p>Compare average pairwise correlation within and across asset classes for
+Passive Buy-and-Hold vs. Strategy active position returns (Lecture 3), using data from `start` to `end`.</p>
+<h3>lag_profile(panel: panel.Panel, windows: list[tuple[int, int]], start: str | None = None, end: str | None = None, lag: int = 2, cap: float = 2.0, vol_span: int = 60) -&gt; pandas.DataFrame</h3><p>Sharpe ratio, before costs, of trading each lookback window on its own.
+
+For a window (a, b) every contract is held in proportion to its move from b to a bars
+ago (in volatility units, capped at +-`cap`), at equal risk, from `lag` days later.
+Positive means the window predicts continuation, negative a reversal.</p>
+<h3>risk_model_bias(daily_returns: pandas.DataFrame, results: dict[str, engine.BacktestResult], risk_models: dict[str, tuple[object, bool, int | None]], sample_start: str | None = None, window: int = 36) -&gt; pandas.DataFrame</h3><p>Evaluate ex-ante vs. realized volatility bias statistic: std(realized / predicted).
+A bias of 1.0 means accurate risk forecasts; &gt;1.0 means risk was under-predicted.</p>
+<h3>plot_strategies(results: dict[str, engine.BacktestResult], out_dir: pathlib.Path, tag: str, sample_start: str | None = None, sample_end: str | None = None) -&gt; None</h3><p>Plot cumulative net wealth and drawdowns; save the figure and the daily series behind it.</p><h2 id="config">config</h2>
+<h2 id="main">main</h2>
+
+<h3>main() -&gt; None</h3>
+</body></html>

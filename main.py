@@ -32,6 +32,7 @@ from strategy import USER_STRATEGIES
 BASELINE_NAME = "Baseline TSMOM"
 STATIC_NAME = "Static benchmark"
 
+IS_START = "1976-06"  # in-sample window starts here (config.SAMPLE_START is the lecture's 1976-02)
 OOS_START = "2015-01"
 MIN_REG_MONTHS = 24  # fewer months than this make the factor regressions meaningless
 
@@ -66,7 +67,7 @@ def main() -> None:
 
     # Common comparison window: the latest first full month across all strategies
     common_start = max(
-        [pd.Period(SAMPLE_START, "M")]
+        [pd.Period(max(SAMPLE_START, IS_START), "M")]
         + [monthly_returns(res).index[0] for res in results.values()]
     )
     START = str(common_start)
