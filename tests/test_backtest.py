@@ -14,7 +14,7 @@ from panel import Panel
 from strategy import USER_STRATEGIES
 
 STRATEGIES = {**BASELINE_STRATEGIES, **USER_STRATEGIES}
-BASELINE = "TSMOM 12m, monthly"
+BASELINE = "Baseline TSMOM"
 STATIC = "Static benchmark"
 
 
@@ -54,13 +54,13 @@ def test_costs_only_reduce_returns(real_panel):
 
 
 def test_later_exec_lag_does_not_help_a_daily_strategy(real_panel):
-    name = "Daily 252d TSMOM, inverse vol"
+    name = "KV"
     first = run_backtest(real_panel, STRATEGIES[name](), exec_lag=1)
     second = run_backtest(real_panel, STRATEGIES[name](), exec_lag=2)
     assert sharpe(monthly_returns(second)) <= sharpe(monthly_returns(first)) + 0.05
 
 
-@pytest.mark.parametrize("name", ["Baseline TSMOM", "Vol target 11%", *USER_STRATEGIES])
+@pytest.mark.parametrize("name", [BASELINE, STATIC, *USER_STRATEGIES])
 def test_no_lookahead(real_panel, full_raw_dir, tmp_path, read_rad, write_rad, name):
     # cut every file mid-month and rebuild the panel on the shorter data
     cutoff = pd.Timestamp("1999-12-15")
@@ -103,7 +103,7 @@ def test_no_lookahead(real_panel, full_raw_dir, tmp_path, read_rad, write_rad, n
     )
 
 
-def test_trend_profile_earns_nothing_once_returns_are_scrambled(
+def test_kv_earns_nothing_once_returns_are_scrambled(
     full_raw_dir, tmp_path, read_rad, write_rad
 ):
     # flip the sign of each day's returns at random, the same flip for every contract:
@@ -127,6 +127,6 @@ def test_trend_profile_earns_nothing_once_returns_are_scrambled(
         write_rad(tmp_path, re.sub("_RAD$", "", file.stem, flags=re.I), prices)
     scrambled_panel = Panel(tmp_path, ASSET_MAP_PATH, DROPPED_SYMBOLS, SUCCESSORS)
 
-    res = run_backtest(scrambled_panel, STRATEGIES["Trend profile"](), exec_lag=2)
+    res = run_backtest(scrambled_panel, STRATEGIES["KV"](), exec_lag=2)
     gross = monthly_returns(res, gross=True).loc[SAMPLE_START:SAMPLE_END]
-    assert abs(sharpe(gross)) < 0.5  # 1.85 on the real data
+    assert abs(sharpe(gross)) < 0.5

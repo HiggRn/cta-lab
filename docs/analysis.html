@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module analysis</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">analysis</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:///c:/users/ieea_gc_laptop_05/onedrive/desktop/fall%202026/orie%205260/quant_portfolio_project/cta-lab-docs/analysis.py">c:\users\ieea_gc_laptop_05\onedrive\desktop\fall 2026\orie 5260\quant_portfolio_project\cta-lab-docs\analysis.py</a></td></tr></table>
+    <p><span class="code">Performance&nbsp;analytics&nbsp;on&nbsp;backtest&nbsp;results:&nbsp;monthly&nbsp;returns,&nbsp;summary&nbsp;tables,&nbsp;factor&nbsp;regressions,&nbsp;and&nbsp;plots.</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="io.html">io</a><br>
+<a href="numpy.html">numpy</a><br>
+</td><td class="multicolumn"><a href="pandas.html">pandas</a><br>
+<a href="matplotlib.pyplot.html">matplotlib.pyplot</a><br>
+</td><td class="multicolumn"><a href="statsmodels.api.html">statsmodels.api</a><br>
+<a href="scipy.stats.html">scipy.stats</a><br>
+</td><td class="multicolumn"><a href="urllib.html">urllib</a><br>
+<a href="zipfile.html">zipfile</a><br>
+</td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor functions-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Functions</strong></td></tr>
+    
+<tr><td class="decor functions-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt><a name="-alpha_table"><strong>alpha_table</strong></a>(strategy_ret: pd.Series, benchmarks: dict[str, pd.DataFrame]) -&gt; pd.DataFrame</dt><dd><span class="code">Regress&nbsp;a&nbsp;strategy's&nbsp;monthly&nbsp;return&nbsp;series&nbsp;against&nbsp;each&nbsp;benchmark.</span></dd></dl>
+ <dl><dt><a name="-correlation_structure"><strong>correlation_structure</strong></a>(
+    panel: Panel,
+    result: BacktestResult,
+    start: str | None = None,
+    end: str | None = None
+) -&gt; pd.DataFrame</dt><dd><span class="code">Compare&nbsp;average&nbsp;pairwise&nbsp;correlation&nbsp;within&nbsp;and&nbsp;across&nbsp;asset&nbsp;classes&nbsp;for<br>
+Passive&nbsp;Buy-and-Hold&nbsp;vs.&nbsp;Strategy&nbsp;active&nbsp;position&nbsp;returns&nbsp;(Lecture&nbsp;3),&nbsp;using&nbsp;data&nbsp;from&nbsp;`start`&nbsp;to&nbsp;`end`.</span></dd></dl>
+ <dl><dt><a name="-first_trade_date"><strong>first_trade_date</strong></a>(result: BacktestResult) -&gt; pd.Timestamp</dt><dd><span class="code">Return&nbsp;the&nbsp;first&nbsp;date&nbsp;on&nbsp;which&nbsp;`result`&nbsp;holds&nbsp;any&nbsp;position&nbsp;(the&nbsp;first&nbsp;date&nbsp;if&nbsp;it&nbsp;never&nbsp;trades).<br>
+&nbsp;<br>
+&gt;&gt;&gt;&nbsp;import&nbsp;pandas&nbsp;as&nbsp;pd<br>
+&gt;&gt;&gt;&nbsp;from&nbsp;types&nbsp;import&nbsp;SimpleNamespace<br>
+&gt;&gt;&gt;&nbsp;idx&nbsp;=&nbsp;pd.date_range("2020-01-01",&nbsp;periods=3)<br>
+&gt;&gt;&gt;&nbsp;pos&nbsp;=&nbsp;pd.DataFrame({"A":&nbsp;[0.0,&nbsp;0.5,&nbsp;0.5]},&nbsp;index=idx)<br>
+&gt;&gt;&gt;&nbsp;str(<a href="#-first_trade_date">first_trade_date</a>(SimpleNamespace(positions=pos)).date())<br>
+'2020-01-02'</span></dd></dl>
+ <dl><dt><a name="-lag_profile"><strong>lag_profile</strong></a>(
+    panel: Panel,
+    windows: list[tuple[int, int]],
+    start: str | None = None,
+    end: str | None = None,
+    lag: int = 2,
+    cap: float = 2.0,
+    vol_span: int = 60
+) -&gt; pd.DataFrame</dt><dd><span class="code">Sharpe&nbsp;ratio,&nbsp;before&nbsp;costs,&nbsp;of&nbsp;trading&nbsp;each&nbsp;lookback&nbsp;window&nbsp;on&nbsp;its&nbsp;own.<br>
+&nbsp;<br>
+For&nbsp;a&nbsp;window&nbsp;(a,&nbsp;b)&nbsp;every&nbsp;contract&nbsp;is&nbsp;held&nbsp;in&nbsp;proportion&nbsp;to&nbsp;its&nbsp;move&nbsp;from&nbsp;b&nbsp;to&nbsp;a&nbsp;bars<br>
+ago&nbsp;(in&nbsp;volatility&nbsp;units,&nbsp;capped&nbsp;at&nbsp;+-`cap`),&nbsp;at&nbsp;equal&nbsp;risk,&nbsp;from&nbsp;`lag`&nbsp;days&nbsp;later.<br>
+Positive&nbsp;means&nbsp;the&nbsp;window&nbsp;predicts&nbsp;continuation,&nbsp;negative&nbsp;a&nbsp;reversal.</span></dd></dl>
+ <dl><dt><a name="-load_benchmarks"><strong>load_benchmarks</strong></a>(panel: Panel, static_ret: pd.Series, factor_dir: Path) -&gt; tuple[dict[str, pd.DataFrame], pd.DataFrame]</dt><dd><span class="code">Build&nbsp;standard&nbsp;Lecture&nbsp;3&nbsp;benchmark&nbsp;suite&nbsp;and&nbsp;return&nbsp;(benchmarks_dict,&nbsp;factors_df).</span></dd></dl>
+ <dl><dt><a name="-load_factors"><strong>load_factors</strong></a>(folder: Path) -&gt; pd.DataFrame</dt><dd><span class="code">Download/load&nbsp;Fama-French&nbsp;3/5&nbsp;factors&nbsp;plus&nbsp;Momentum&nbsp;(UMD).</span></dd></dl>
+ <dl><dt><a name="-max_drawdown"><strong>max_drawdown</strong></a>(r: pd.Series) -&gt; float</dt><dd><span class="code">Worst&nbsp;peak-to-trough&nbsp;loss&nbsp;of&nbsp;the&nbsp;compounded&nbsp;return&nbsp;series&nbsp;`r`,&nbsp;as&nbsp;a&nbsp;non-positive&nbsp;number.<br>
+&nbsp;<br>
+&gt;&gt;&gt;&nbsp;import&nbsp;pandas&nbsp;as&nbsp;pd<br>
+&gt;&gt;&gt;&nbsp;round(<a href="#-max_drawdown">max_drawdown</a>(pd.Series([0.10,&nbsp;-0.20,&nbsp;0.05])),&nbsp;4)<br>
+-0.2</span></dd></dl>
+ <dl><dt><a name="-monthly_metrics"><strong>monthly_metrics</strong></a>(r: pd.Series) -&gt; dict[str, float]</dt><dd><span class="code">Annualised&nbsp;statistics&nbsp;of&nbsp;a&nbsp;monthly&nbsp;return&nbsp;series.<br>
+&nbsp;<br>
+Returns&nbsp;a&nbsp;dict&nbsp;with&nbsp;Avg,&nbsp;Std,&nbsp;SR,&nbsp;t(mean),&nbsp;Skew,&nbsp;ExKurt,&nbsp;MaxDD,&nbsp;Calmar&nbsp;and&nbsp;Hit&nbsp;rate.<br>
+All&nbsp;values&nbsp;are&nbsp;NaN&nbsp;when&nbsp;the&nbsp;series&nbsp;is&nbsp;empty&nbsp;or&nbsp;has&nbsp;zero&nbsp;variance.<br>
+&nbsp;<br>
+&gt;&gt;&gt;&nbsp;import&nbsp;pandas&nbsp;as&nbsp;pd<br>
+&gt;&gt;&gt;&nbsp;m&nbsp;=&nbsp;<a href="#-monthly_metrics">monthly_metrics</a>(pd.Series([0.01,&nbsp;0.02,&nbsp;-0.01,&nbsp;0.03]))<br>
+&gt;&gt;&gt;&nbsp;round(m["Avg"],&nbsp;2),&nbsp;round(m["Hit&nbsp;rate"],&nbsp;2)<br>
+(0.15,&nbsp;0.75)</span></dd></dl>
+ <dl><dt><a name="-monthly_returns"><strong>monthly_returns</strong></a>(result: BacktestResult, gross: bool = False) -&gt; pd.Series</dt><dd><span class="code">Compound&nbsp;daily&nbsp;net&nbsp;(or&nbsp;gross)&nbsp;returns&nbsp;into&nbsp;calendar&nbsp;months&nbsp;after&nbsp;the&nbsp;first&nbsp;trade.</span></dd></dl>
+ <dl><dt><a name="-ols"><strong>ols</strong></a>(y: pd.Series, X: pd.DataFrame, nw_lags: int = 6, periods: int = 12) -&gt; dict[str, float]</dt><dd><span class="code">OLS&nbsp;with&nbsp;Newey-West&nbsp;HAC&nbsp;standard&nbsp;errors.&nbsp;Alpha&nbsp;is&nbsp;annualized&nbsp;with&nbsp;`periods`&nbsp;per&nbsp;year.</span></dd></dl>
+ <dl><dt><a name="-plot_strategies"><strong>plot_strategies</strong></a>(
+    results: dict[str, BacktestResult],
+    out_dir: Path,
+    tag: str,
+    sample_start: str | None = None,
+    sample_end: str | None = None
+) -&gt; None</dt><dd><span class="code">Plot&nbsp;cumulative&nbsp;net&nbsp;wealth&nbsp;and&nbsp;drawdowns;&nbsp;save&nbsp;the&nbsp;figure&nbsp;and&nbsp;the&nbsp;daily&nbsp;series&nbsp;behind&nbsp;it.</span></dd></dl>
+ <dl><dt><a name="-regime_returns"><strong>regime_returns</strong></a>(
+    strategies_monthly: dict[str, pd.Series],
+    market_ret: pd.Series,
+    q: float = 0.2
+) -&gt; pd.DataFrame</dt><dd><span class="code">Annualized&nbsp;average&nbsp;return&nbsp;during&nbsp;Bear&nbsp;(worst&nbsp;20%),&nbsp;Normal&nbsp;(middle&nbsp;60%),&nbsp;and&nbsp;Bull&nbsp;(best&nbsp;20%)&nbsp;equity&nbsp;months.</span></dd></dl>
+ <dl><dt><a name="-risk_model_bias"><strong>risk_model_bias</strong></a>(
+    daily_returns: pd.DataFrame,
+    results: dict[str, BacktestResult],
+    risk_models: dict[str, tuple[object, bool, int | None]],
+    sample_start: str | None = None,
+    window: int = 36
+) -&gt; pd.DataFrame</dt><dd><span class="code">Evaluate&nbsp;ex-ante&nbsp;vs.&nbsp;realized&nbsp;volatility&nbsp;bias&nbsp;statistic:&nbsp;std(realized&nbsp;/&nbsp;predicted).<br>
+A&nbsp;bias&nbsp;of&nbsp;1.0&nbsp;means&nbsp;accurate&nbsp;risk&nbsp;forecasts;&nbsp;&gt;1.0&nbsp;means&nbsp;risk&nbsp;was&nbsp;under-predicted.</span></dd></dl>
+ <dl><dt><a name="-sg_trend_comparison"><strong>sg_trend_comparison</strong></a>(strategy_ret: pd.Series, sg_excel_path: Path) -&gt; dict[str, float | str]</dt><dd><span class="code">Regress&nbsp;strategy&nbsp;excess&nbsp;returns&nbsp;on&nbsp;the&nbsp;live&nbsp;CTA&nbsp;index&nbsp;(SG&nbsp;Trend&nbsp;-&nbsp;RF).<br>
+&nbsp;<br>
+alpha&nbsp;is&nbsp;the&nbsp;strategy's&nbsp;annualized&nbsp;alpha&nbsp;over&nbsp;SG&nbsp;Trend.</span></dd></dl>
+ <dl><dt><a name="-sharpe_diff_test"><strong>sharpe_diff_test</strong></a>(a: pd.Series, b: pd.Series) -&gt; dict[str, float]</dt><dd><span class="code">Jobson-Korkie&nbsp;test&nbsp;with&nbsp;Memmel's&nbsp;correction&nbsp;that&nbsp;two&nbsp;Sharpe&nbsp;ratios&nbsp;are&nbsp;equal.</span></dd></dl>
+ <dl><dt><a name="-smile_regression"><strong>smile_regression</strong></a>(strategy_ret: pd.Series, market_ret: pd.Series) -&gt; dict[str, float]</dt><dd><span class="code">Quarterly&nbsp;regression&nbsp;on&nbsp;Mkt&nbsp;and&nbsp;Mkt^2&nbsp;to&nbsp;test&nbsp;positive&nbsp;tail&nbsp;convexity.</span></dd></dl>
+ <dl><dt><a name="-strategy_summary_table"><strong>strategy_summary_table</strong></a>(
+    results: dict[str, BacktestResult],
+    baseline_name: str,
+    sample_start: str | None = None,
+    sample_end: str | None = None
+) -&gt; pd.DataFrame</dt><dd><span class="code">Comprehensive&nbsp;comparison&nbsp;table&nbsp;of&nbsp;net/gross&nbsp;performance,&nbsp;turnover,&nbsp;cost&nbsp;drag&nbsp;(bps/yr),<br>
+average&nbsp;gross&nbsp;leverage,&nbsp;number&nbsp;of&nbsp;positions&nbsp;and&nbsp;net&nbsp;exposure,&nbsp;and&nbsp;Sharpe&nbsp;difference&nbsp;p-value<br>
+against&nbsp;`baseline_name`,&nbsp;over&nbsp;months&nbsp;sample_start..sample_end.</span></dd></dl>
+ <dl><dt><a name="-to_quarterly"><strong>to_quarterly</strong></a>(r: pd.Series) -&gt; pd.Series</dt><dd><span class="code">Sum&nbsp;of&nbsp;monthly&nbsp;returns&nbsp;in&nbsp;each&nbsp;complete&nbsp;3-month&nbsp;calendar&nbsp;quarter.</span></dd></dl>
+</td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>FRENCH_FILES</strong> = ['F-F_Research_Data_Factors', 'F-F_Momentum_Factor', 'F-F_Research_Data_5_Factors_2x3']<br>
+<strong>FRENCH_URL</strong> = 'https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/'</td></tr></table>
+</body></html>

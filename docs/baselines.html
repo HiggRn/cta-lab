@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Python: module baselines</title>
+</head><body>
+
+<table class="heading">
+<tr class="heading-text decor">
+<td class="title">&nbsp;<br><strong class="title">baselines</strong></td>
+<td class="extra"><a href=".">index</a><br><a href="file:///c:/users/ieea_gc_laptop_05/onedrive/desktop/fall%202026/orie%205260/quant_portfolio_project/cta-lab-docs/baselines.py">c:\users\ieea_gc_laptop_05\onedrive\desktop\fall 2026\orie 5260\quant_portfolio_project\cta-lab-docs\baselines.py</a></td></tr></table>
+    <p><span class="code">Course&nbsp;baseline&nbsp;strategies:&nbsp;monthly&nbsp;time-series&nbsp;momentum&nbsp;(TSMOM)&nbsp;and&nbsp;a&nbsp;static&nbsp;long-only&nbsp;benchmark.</span></p>
+<p>
+<table class="section">
+<tr class="decor pkg-content-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Modules</strong></td></tr>
+    
+<tr><td class="decor pkg-content-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><table><tr><td class="multicolumn"><a href="numpy.html">numpy</a><br>
+</td><td class="multicolumn"><a href="pandas.html">pandas</a><br>
+</td><td class="multicolumn"></td><td class="multicolumn"></td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor index-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Classes</strong></td></tr>
+    
+<tr><td class="decor index-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><dl>
+<dt class="heading-text"><a href="common.html#AlphaModel">common.AlphaModel</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="baselines.html#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a>
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="baselines.html#StaticLongAlpha">StaticLongAlpha</a>
+</dt></dl>
+</dd>
+</dl>
+</dd>
+<dt class="heading-text"><a href="common.html#ModularStrategy">common.ModularStrategy</a>(<a href="common.html#Strategy">common.Strategy</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="baselines.html#BaselineTsmomStrategy">BaselineTsmomStrategy</a>
+</dt><dt class="heading-text"><a href="baselines.html#StaticBenchmarkStrategy">StaticBenchmarkStrategy</a>
+</dt></dl>
+</dd>
+<dt class="heading-text"><a href="common.html#RiskModel">common.RiskModel</a>(<a href="abc.html#ABC">abc.ABC</a>)
+</dt><dd>
+<dl>
+<dt class="heading-text"><a href="baselines.html#ExpandingMonthlyRiskModel">ExpandingMonthlyRiskModel</a>
+</dt></dl>
+</dd>
+</dl>
+ <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="BaselineTsmomStrategy">class <strong>BaselineTsmomStrategy</strong></a>(<a href="common.html#ModularStrategy">common.ModularStrategy</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#BaselineTsmomStrategy">BaselineTsmomStrategy</a>(lookbacks:&nbsp;tuple[int,&nbsp;...]&nbsp;=&nbsp;(12,))<br>
+&nbsp;<br>
+Monthly&nbsp;12m&nbsp;TSMOM,&nbsp;expanding&nbsp;monthly&nbsp;vol,&nbsp;40%&nbsp;equal&nbsp;risk,&nbsp;1/N&nbsp;(the&nbsp;midterm&nbsp;baseline).<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="baselines.html#BaselineTsmomStrategy">BaselineTsmomStrategy</a></dd>
+<dd><a href="common.html#ModularStrategy">common.ModularStrategy</a></dd>
+<dd><a href="common.html#Strategy">common.Strategy</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="BaselineTsmomStrategy-__init__"><strong>__init__</strong></a>(self, lookbacks: tuple[int, ...] = (12,))</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Methods inherited from <a href="common.html#ModularStrategy">common.ModularStrategy</a>:<br>
+<dl><dt><a name="BaselineTsmomStrategy-on_bar"><strong>on_bar</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; dict[str, float] | None</dt><dd><span class="code">Update&nbsp;signals,&nbsp;drop&nbsp;those&nbsp;of&nbsp;delisted&nbsp;contracts,&nbsp;and&nbsp;on&nbsp;a&nbsp;scheduled&nbsp;day&nbsp;return&nbsp;the&nbsp;PCM's&nbsp;targets.</span></dd></dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#Strategy">common.Strategy</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="ExpandingMonthlyRiskModel">class <strong>ExpandingMonthlyRiskModel</strong></a>(<a href="common.html#RiskModel">common.RiskModel</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#ExpandingMonthlyRiskModel">ExpandingMonthlyRiskModel</a>(min_months:&nbsp;int&nbsp;=&nbsp;36)<br>
+&nbsp;<br>
+Expanding-window&nbsp;covariance&nbsp;of&nbsp;completed&nbsp;monthly&nbsp;returns.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="baselines.html#ExpandingMonthlyRiskModel">ExpandingMonthlyRiskModel</a></dd>
+<dd><a href="common.html#RiskModel">common.RiskModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="ExpandingMonthlyRiskModel-__init__"><strong>__init__</strong></a>(self, min_months: int = 36)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="ExpandingMonthlyRiskModel-covariance"><strong>covariance</strong></a>(self, returns: pd.DataFrame) -&gt; pd.DataFrame</dt><dd><span class="code">Annualised&nbsp;(x12)&nbsp;covariance&nbsp;of&nbsp;completed&nbsp;monthly&nbsp;returns,&nbsp;NaN&nbsp;below&nbsp;`min_months`&nbsp;observations.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#RiskModel">common.RiskModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="MonthlyTsmomAlpha">class <strong>MonthlyTsmomAlpha</strong></a>(<a href="common.html#AlphaModel">common.AlphaModel</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a>(lookbacks:&nbsp;tuple[int,&nbsp;...]&nbsp;=&nbsp;(12,))<br>
+&nbsp;<br>
+Sign&nbsp;of&nbsp;past&nbsp;completed&nbsp;calendar-month&nbsp;returns&nbsp;(single&nbsp;or&nbsp;blended&nbsp;lookbacks).<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="baselines.html#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a></dd>
+<dd><a href="common.html#AlphaModel">common.AlphaModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="MonthlyTsmomAlpha-__init__"><strong>__init__</strong></a>(self, lookbacks: tuple[int, ...] = (12,))</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="MonthlyTsmomAlpha-direction"><strong>direction</strong></a>(self, completed_returns: list[float]) -&gt; float</dt><dd><span class="code">Average&nbsp;over&nbsp;`lookbacks`&nbsp;of&nbsp;the&nbsp;sign&nbsp;of&nbsp;the&nbsp;summed&nbsp;last&nbsp;k&nbsp;completed&nbsp;monthly&nbsp;returns.<br>
+&nbsp;<br>
+&gt;&gt;&gt;&nbsp;<a href="#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a>((1,&nbsp;2)).<a href="#MonthlyTsmomAlpha-direction">direction</a>([0.05,&nbsp;-0.01])<br>
+0.0<br>
+&gt;&gt;&gt;&nbsp;<a href="#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a>((1,)).<a href="#MonthlyTsmomAlpha-direction">direction</a>([-0.02])<br>
+-1.0</span></dd></dl>
+
+<dl><dt><a name="MonthlyTsmomAlpha-update"><strong>update</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; dict[str, float]</dt><dd><span class="code">Update&nbsp;each&nbsp;traded&nbsp;symbol's&nbsp;monthly-return&nbsp;indicator&nbsp;and&nbsp;emit&nbsp;a&nbsp;signal&nbsp;on&nbsp;the&nbsp;bar&nbsp;that&nbsp;closes&nbsp;a&nbsp;month.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#AlphaModel">common.AlphaModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="StaticBenchmarkStrategy">class <strong>StaticBenchmarkStrategy</strong></a>(<a href="common.html#ModularStrategy">common.ModularStrategy</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code">Static&nbsp;Long-Only&nbsp;Benchmark:&nbsp;identical&nbsp;risk&nbsp;sizing&nbsp;&amp;&nbsp;universe&nbsp;entry&nbsp;as&nbsp;the&nbsp;monthly&nbsp;12m&nbsp;TSMOM.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="baselines.html#StaticBenchmarkStrategy">StaticBenchmarkStrategy</a></dd>
+<dd><a href="common.html#ModularStrategy">common.ModularStrategy</a></dd>
+<dd><a href="common.html#Strategy">common.Strategy</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="StaticBenchmarkStrategy-__init__"><strong>__init__</strong></a>(self)</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Methods inherited from <a href="common.html#ModularStrategy">common.ModularStrategy</a>:<br>
+<dl><dt><a name="StaticBenchmarkStrategy-on_bar"><strong>on_bar</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; dict[str, float] | None</dt><dd><span class="code">Update&nbsp;signals,&nbsp;drop&nbsp;those&nbsp;of&nbsp;delisted&nbsp;contracts,&nbsp;and&nbsp;on&nbsp;a&nbsp;scheduled&nbsp;day&nbsp;return&nbsp;the&nbsp;PCM's&nbsp;targets.</span></dd></dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#Strategy">common.Strategy</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table> <p>
+<table class="section">
+<tr class="decor title-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><a name="StaticLongAlpha">class <strong>StaticLongAlpha</strong></a>(<a href="baselines.html#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a>)</td></tr>
+    
+<tr><td class="decor title-decor" rowspan=2><span class="code">&nbsp;&nbsp;&nbsp;</span></td>
+<td class="decor title-decor" colspan=2><span class="code"><a href="#StaticLongAlpha">StaticLongAlpha</a>(lookbacks:&nbsp;tuple[int,&nbsp;...]&nbsp;=&nbsp;(12,))<br>
+&nbsp;<br>
+Static&nbsp;long-only&nbsp;benchmark:&nbsp;enters&nbsp;each&nbsp;contract&nbsp;once&nbsp;the&nbsp;same&nbsp;history&nbsp;as&nbsp;TSMOM&nbsp;exists.<br>&nbsp;</span></td></tr>
+<tr><td>&nbsp;</td>
+<td class="singlecolumn"><dl><dt>Method resolution order:</dt>
+<dd><a href="baselines.html#StaticLongAlpha">StaticLongAlpha</a></dd>
+<dd><a href="baselines.html#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a></dd>
+<dd><a href="common.html#AlphaModel">common.AlphaModel</a></dd>
+<dd><a href="abc.html#ABC">abc.ABC</a></dd>
+<dd><a href="builtins.html#object">builtins.object</a></dd>
+</dl>
+<hr>
+Methods defined here:<br>
+<dl><dt><a name="StaticLongAlpha-direction"><strong>direction</strong></a>(self, completed_returns: list[float]) -&gt; float</dt><dd><span class="code">Always&nbsp;+1:&nbsp;the&nbsp;position&nbsp;is&nbsp;long&nbsp;whenever&nbsp;enough&nbsp;history&nbsp;exists.</span></dd></dl>
+
+<hr>
+Data and other attributes defined here:<br>
+<dl><dt><strong>__abstractmethods__</strong> = frozenset()</dl>
+
+<hr>
+Methods inherited from <a href="baselines.html#MonthlyTsmomAlpha">MonthlyTsmomAlpha</a>:<br>
+<dl><dt><a name="StaticLongAlpha-__init__"><strong>__init__</strong></a>(self, lookbacks: tuple[int, ...] = (12,))</dt><dd><span class="code">Initialize&nbsp;self.&nbsp;&nbsp;See&nbsp;help(type(self))&nbsp;for&nbsp;accurate&nbsp;signature.</span></dd></dl>
+
+<dl><dt><a name="StaticLongAlpha-update"><strong>update</strong></a>(self, bars: dict[str, Bar], context: HistoryContext) -&gt; dict[str, float]</dt><dd><span class="code">Update&nbsp;each&nbsp;traded&nbsp;symbol's&nbsp;monthly-return&nbsp;indicator&nbsp;and&nbsp;emit&nbsp;a&nbsp;signal&nbsp;on&nbsp;the&nbsp;bar&nbsp;that&nbsp;closes&nbsp;a&nbsp;month.</span></dd></dl>
+
+<hr>
+Data descriptors inherited from <a href="common.html#AlphaModel">common.AlphaModel</a>:<br>
+<dl><dt><strong>__dict__</strong></dt>
+<dd><span class="code">dictionary&nbsp;for&nbsp;instance&nbsp;variables</span></dd>
+</dl>
+<dl><dt><strong>__weakref__</strong></dt>
+<dd><span class="code">list&nbsp;of&nbsp;weak&nbsp;references&nbsp;to&nbsp;the&nbsp;object</span></dd>
+</dl>
+</td></tr></table></td></tr></table><p>
+<table class="section">
+<tr class="decor data-decor heading-text">
+<td class="section-title" colspan=3>&nbsp;<br><strong class="bigsection">Data</strong></td></tr>
+    
+<tr><td class="decor data-decor"><span class="code">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></td><td>&nbsp;</td>
+<td class="singlecolumn"><strong>BASELINE_STRATEGIES</strong> = {'Baseline TSMOM': &lt;class 'baselines.BaselineTsmomStrategy'&gt;, 'Static benchmark': &lt;class 'baselines.StaticBenchmarkStrategy'&gt;}</td></tr></table>
+</body></html>

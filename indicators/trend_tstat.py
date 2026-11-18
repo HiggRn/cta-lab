@@ -1,3 +1,5 @@
+"""`TrendTStat`: volatility-adjusted trend strength."""
+
 import math
 from collections import deque
 
@@ -18,14 +20,17 @@ class TrendTStat(Indicator):
 
     @property
     def is_ready(self) -> bool:
+        """True once `lookback` + 1 closes have been seen."""
         return len(self._logs) == self._logs.maxlen
 
     @property
     def value(self) -> float:
+        """Trend t-statistic over the window; 0 when volatility is zero."""
         daily = np.diff(self._logs)
         vol = daily.std(ddof=1)
         return float(daily.sum() / (vol * math.sqrt(len(daily)))) if vol > 0.0 else 0.0
 
     def update(self, bar: Bar) -> None:
+        """Append the log of the bar's close (non-positive closes are ignored)."""
         if bar.close > 0.0:
             self._logs.append(math.log(bar.close))
